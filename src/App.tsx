@@ -265,8 +265,11 @@ const writeJson = (k: string, v: any) => {
 ----------------------------- */
 const syncToCloud = async (patch: any) => {
   try {
-    // 將資料合併寫入雲端 Firestore
-    await setDoc(doc(db, "migratePro", "mainState"), patch, { merge: true });
+    // 利用 JSON 轉換，自動把物件裡值為 undefined 的屬性剔除
+    const cleanPatch = JSON.parse(JSON.stringify(patch));
+    
+    // 將乾淨的資料寫入雲端 Firestore
+    await setDoc(doc(db, "migratePro", "mainState"), cleanPatch, { merge: true });
   } catch (e) {
     console.error("Cloud Sync Error:", e);
   }

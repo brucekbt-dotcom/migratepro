@@ -27,7 +27,6 @@ import {
   Save,
   Sparkles,
   FileText,
-  Camera,
 } from "lucide-react";
 import {
   BarChart,
@@ -923,7 +922,7 @@ function FullCSVImportModal({ onClose }: { onClose: () => void }) {
 }
 
 /* ==========================================
-   (NEW) 設備資產清單 PDF 匯出視窗 - 橫式 A4
+   設備資產清單 PDF 匯出視窗 - 橫式 A4
 ========================================== */
 function DeviceListReportModal({ onClose }: { onClose: () => void }) {
   const devices = useStore((s) => s.devices);
@@ -1026,7 +1025,7 @@ const DevicesPage = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [editing, setEditing] = useState<Device | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [reportOpen, setReportOpen] = useState(false); // 控制 PDF 視窗
+  const [reportOpen, setReportOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("deviceId");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -1089,7 +1088,6 @@ const DevicesPage = () => {
           {allowManage && (<button onClick={() => setImportOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2"><Upload size={16} /> 完整CSV還原</button>)}
           <button onClick={() => canExportCSV(role) && downloadFullCSV(devices)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2"><Download size={16} /> 完整CSV備份</button>
           
-          {/* 加入清單 PDF 匯出按鈕 (所有權限皆可) */}
           <button onClick={() => setReportOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-[var(--text)]">
             <FileText size={16} /> 匯出清單 PDF
           </button>
@@ -1249,7 +1247,7 @@ function AddAndPlaceModal({ mode, rackId, u, onClose }: { mode: PlacementMode; r
 }
 
 /* -----------------------------
-  Rack Planner (包含機櫃佈局 PDF 匯出)
+  Rack Planner (無佈局圖匯出版)
 ----------------------------- */
 const isNoMoveRack = (name: string) => name.startsWith("不搬存放區");
 
@@ -1270,52 +1268,11 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
   const [hoverInfo, setHoverInfo] = useState<HoverInfo | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [addPlace, setAddPlace] = useState<{ rackId: string; u: number } | null>(null);
-  
-  // (NEW) PDF 匯出狀態
-  const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   useEffect(() => {
     repairRackIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
-
-  // (NEW) 處理機櫃圖 PDF 匯出
-  const handleExportRackPDF = () => {
-    setIsExportingPDF(true); // 觸發版面切換 (將機櫃折行顯示，避免截圖被切斷)
-    
-    setTimeout(async () => {
-      try {
-        const element = document.getElementById("pdf-rack-content");
-        if (!element) return;
-        
-        // 抓圖，強制使用暗色系背景以符合機櫃視覺
-        const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#0f172a" });
-        const imgData = canvas.toDataURL("image/png");
-        
-        const pdf = new jsPDF("l", "mm", "a4");
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        let finalH = (canvas.height * pdfWidth) / canvas.width;
-        let finalW = pdfWidth;
-
-        // 若排版過長超出 A4 高度，則依高度來縮小寬度
-        if (finalH > pdf.internal.pageSize.getHeight()) {
-            finalH = pdf.internal.pageSize.getHeight();
-            finalW = (canvas.width * finalH) / canvas.height;
-        }
-        
-        // 置中
-        const x = (pdf.internal.pageSize.getWidth() - finalW) / 2;
-        const y = (pdf.internal.pageSize.getHeight() - finalH) / 2;
-
-        pdf.addImage(imgData, "PNG", x, y, finalW, finalH);
-        pdf.save(`MigratePro_機櫃佈局_${mode === 'before' ? '搬遷前' : '搬遷後'}_${new Date().toISOString().slice(0,10)}.pdf`);
-      } catch (error) {
-        alert("匯出失敗：" + error);
-      } finally {
-        setIsExportingPDF(false); // 恢復原本版面
-      }
-    }, 500); // 延遲 500ms 讓 Tailwind CSS 有時間重繪成換行版面
-  };
 
   const rackIdSet = useMemo(() => new Set(racks.map((r) => r.id)), [racks]);
   const isPlaced = (d: Device) => {
@@ -1402,36 +1359,21 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
           </p>
         </div>
         
-        <div className="flex items-center gap-4 flex-wrap">
-          {/* 類別顏色圖例 */}
-          <div className="flex gap-3 bg-[var(--panel)] p-2.5 rounded-xl border border-[var(--border)] shadow-sm text-xs font-bold shrink-0 flex-wrap">
-            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Network }}></div> Network</div>
-            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Server }}></div> Server</div>
-            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Storage }}></div> Storage</div>
-            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Other }}></div> Other</div>
-          </div>
-          
-          {/* (NEW) 匯出機櫃圖按鈕 */}
-          <button 
-            onClick={handleExportRackPDF} 
-            disabled={isExportingPDF}
-            className="px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--panel)] hover:bg-[var(--accent)] hover:text-black hover:border-[var(--accent)] font-bold transition-all flex items-center gap-2"
-          >
-            <Camera size={16} /> {isExportingPDF ? "準備截圖中..." : "匯出佈局 PDF"}
-          </button>
+        <div className="flex gap-3 bg-[var(--panel)] p-2.5 rounded-xl border border-[var(--border)] shadow-sm text-xs font-bold shrink-0 flex-wrap">
+          <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Network }}></div> Network</div>
+          <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Server }}></div> Server</div>
+          <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Storage }}></div> Storage</div>
+          <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Other }}></div> Other</div>
         </div>
       </div>
 
       <UnplacedPanel mode={mode} unplaced={unplaced} collapsed={collapsed} setCollapsed={setCollapsed} allowLayout={allowLayout} />
 
-      {/* 匯出 PDF 時，我們會動態改變 class，移除 overflow-x-auto 變成 flex-wrap 
-          這樣機櫃就不會被橫向隱藏，而是換行全部顯示，讓 html2canvas 可以一次捕捉所有畫面！
-      */}
-      <div id="pdf-rack-content" className={`transition-all duration-300 ${isExportingPDF ? "space-y-8 bg-slate-900 p-8 rounded-2xl" : "space-y-8 overflow-hidden"}`}>
+      <div className="space-y-8 overflow-hidden">
         {rackRows.map((row, idx) => (
-          <div key={idx} className={`flex gap-6 pb-4 items-start ${isExportingPDF ? "flex-wrap justify-center" : "overflow-x-auto snap-x"}`}>
+          <div key={idx} className="flex gap-6 overflow-x-auto pb-4 items-start snap-x">
             {row.map((rack) => (
-              <div key={rack.id} className={`flex flex-col bg-[var(--panel)] rounded-xl shadow-lg border border-[var(--border)] overflow-hidden flex-shrink-0 w-[340px] ${!isExportingPDF && "snap-center"}`}>
+              <div key={rack.id} className="flex flex-col bg-[var(--panel)] rounded-xl shadow-lg border border-[var(--border)] overflow-hidden flex-shrink-0 snap-center w-[340px]">
                 <div className={`p-4 ${mode === "after" && isNoMoveRack(rack.name) ? "bg-red-800" : mode === "after" ? "bg-emerald-600" : "bg-slate-800"} text-white flex justify-between items-center`}>
                   <h2 className="font-bold text-base flex items-center gap-2 truncate text-white"><Server size={18} />{rack.name}</h2>
                   <span className="text-[10px] bg-white/20 px-2 py-1 rounded whitespace-nowrap text-white">42U</span>
@@ -1488,7 +1430,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
                               ) : (<div className="truncate w-full font-bold text-[8px] sm:text-[9px] leading-tight">{d.deviceId} | {d.name} | {d.model}</div>)}
                             </div>
                             <div className="absolute bottom-1 right-1 flex items-center bg-black/40 px-1 py-[2px] rounded shadow-inner pointer-events-none scale-[0.7] sm:scale-[0.8] origin-bottom-right"><LampsRow m={d.migration} /></div>
-                            {allowLayout && isHovered && !isExportingPDF && (
+                            {allowLayout && isHovered && (
                               <button onClick={(e) => { e.stopPropagation(); clearPlacement(mode, d.id); setHoverId(null); setHoverInfo(null); }} className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-red-500 text-white shadow-lg hover:bg-red-400 z-30 pointer-events-auto scale-75">
                                 <X size={12} />
                               </button>
@@ -1506,7 +1448,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
         ))}
       </div>
       {addPlace && <AddAndPlaceModal mode={mode} rackId={addPlace.rackId} u={addPlace.u} onClose={() => setAddPlace(null)} />}
-      {hoverInfo && !isExportingPDF && <HoverCard {...hoverInfo} />}
+      {hoverInfo && <HoverCard {...hoverInfo} />}
     </div>
   );
 };

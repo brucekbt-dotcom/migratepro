@@ -26,6 +26,8 @@ import {
   KeyRound,
   Save,
   Sparkles,
+  FileText,
+  Camera,
 } from "lucide-react";
 import {
   BarChart,
@@ -36,6 +38,8 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 /* ==========================================
    Firebase 雲端資料庫設定 (內建，免額外檔案)
@@ -265,14 +269,71 @@ const writeJson = (k: string, v: any) => {
 ----------------------------- */
 const syncToCloud = async (patch: any) => {
   try {
-    // 利用 JSON 轉換，自動把物件裡值為 undefined 的屬性剔除
     const cleanPatch = JSON.parse(JSON.stringify(patch));
-    
-    // 將乾淨的資料寫入雲端 Firestore
     await setDoc(doc(db, "migratePro", "mainState"), cleanPatch, { merge: true });
   } catch (e) {
     console.error("Cloud Sync Error:", e);
   }
+};
+
+/* -----------------------------
+  CSV 工具函式
+----------------------------- */
+const escapeCSV = (str: string | number | undefined | null) => {
+  if (str == null) return "";
+  const s = String(str).replace(/"/g, '""');
+  return `"${s}"`;
+};
+
+const CSV_HEADER = "id,category,deviceId,name,brand,model,ports,sizeU,ip,serial,portMap,beforeRackId,beforeStartU,beforeEndU,afterRackId,afterStartU,afterEndU,m_racked,m_cabled,m_powered,m_tested";
+
+const downloadFullCSV = (devices: Device[]) => {
+  const rows = devices.map(d => [
+    d.id, d.category, d.deviceId, d.name, d.brand, d.model, d.ports, d.sizeU,
+    d.ip || "", d.serial || "", d.portMap || "",
+    d.beforeRackId || "", d.beforeStartU || "", d.beforeEndU || "",
+    d.afterRackId || "", d.afterStartU || "", d.afterEndU || "",
+    d.migration.racked ? "1" : "0", d.migration.cabled ? "1" : "0", d.migration.powered ? "1" : "0", d.migration.tested ? "1" : "0"
+  ].map(escapeCSV).join(','));
+
+  const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [CSV_HEADER, ...rows].join("\n");
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", `MigratePro_完整備份_${new Date().toISOString().slice(0,10)}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+const downloadFullCSVTemplate = () => {
+  const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + CSV_HEADER + "\n";
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", "MigratePro_匯入範本.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+const parseCSV = (str: string): string[][] => {
+  const arr: string[][] = [];
+  let quote = false;
+  let row = 0, col = 0;
+  for (let c = 0; c < str.length; c++) {
+    let cc = str[c], nc = str[c+1];
+    arr[row] = arr[row] || [];
+    arr[row][col] = arr[row][col] || '';
+    if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }
+    if (cc === '"') { quote = !quote; continue; }
+    if (cc === ',' && !quote) { ++col; continue; }
+    if (cc === '\r' && nc === '\n' && !quote) { ++row; col = 0; ++c; continue; }
+    if (cc === '\n' && !quote) { ++row; col = 0; continue; }
+    if (cc === '\r' && !quote) { ++row; col = 0; continue; }
+    arr[row][col] += cc;
+  }
+  return arr;
 };
 
 const isProbablyOldRackId = (v: string) => !v.startsWith("BEF_") && !v.startsWith("AFT_");
@@ -478,7 +539,7 @@ const useStore = create<Store>((set, get) => ({
       ? accounts.map((x) => (x.username === username ? { ...a, username } : x))
       : [...accounts, { ...a, username }];
     writeJson(LS.accounts, next);
-    syncToCloud({ accounts: next }); // <--- 同步雲端
+    syncToCloud({ accounts: next });
     set({ accounts: next });
     return { ok: true };
   },
@@ -488,7 +549,7 @@ const useStore = create<Store>((set, get) => ({
     const accounts = get().accounts;
     const next = accounts.filter((a) => a.username !== username);
     writeJson(LS.accounts, next);
-    syncToCloud({ accounts: next }); // <--- 同步雲端
+    syncToCloud({ accounts: next });
     set({ accounts: next });
     return { ok: true };
   },
@@ -531,7 +592,7 @@ const useStore = create<Store>((set, get) => ({
     set((s) => {
       const next: Device[] = [...s.devices, { ...draft, id, migration: { racked: false, cabled: false, powered: false, tested: false } } as Device];
       writeJson(LS.devices, next);
-      syncToCloud({ devices: next }); // <--- 同步雲端
+      syncToCloud({ devices: next });
       return { devices: next };
     });
     return id;
@@ -540,18 +601,18 @@ const useStore = create<Store>((set, get) => ({
   updateDevice: (id, patch) => set((s) => {
     const next = s.devices.map((d) => d.id === id ? ({ ...d, ...patch } as Device) : d);
     writeJson(LS.devices, next);
-    syncToCloud({ devices: next }); // <--- 同步雲端
+    syncToCloud({ devices: next });
     return { devices: next };
   }),
 
   deleteDeviceById: (id) => set((s) => {
     const next = s.devices.filter((d) => d.id !== id);
     writeJson(LS.devices, next);
-    syncToCloud({ devices: next }); // <--- 同步雲端
+    syncToCloud({ devices: next });
     return { devices: next, selectedDeviceId: s.selectedDeviceId === id ? null : s.selectedDeviceId };
   }),
 
-  importFullCSV: (fileText) => { /* 實作略過簡化，雲端同步也在這 */ 
+  importFullCSV: (fileText) => {
       try {
         const rows = parseCSV(fileText);
         if (rows.length < 2) return { ok: false, message: "CSV 內容不足" };
@@ -578,7 +639,7 @@ const useStore = create<Store>((set, get) => ({
         });
   
         writeJson(LS.devices, devices);
-        syncToCloud({ devices }); // <--- 同步雲端
+        syncToCloud({ devices });
         set({ devices });
         return { ok: true };
       } catch (e: any) {
@@ -592,7 +653,7 @@ const useStore = create<Store>((set, get) => ({
       return mode === "before" ? { ...d, beforeRackId: undefined, beforeStartU: undefined, beforeEndU: undefined } : { ...d, afterRackId: undefined, afterStartU: undefined, afterEndU: undefined };
     });
     writeJson(LS.devices, next);
-    syncToCloud({ devices: next }); // <--- 同步雲端
+    syncToCloud({ devices: next });
     return { devices: next };
   }),
 
@@ -620,7 +681,7 @@ const useStore = create<Store>((set, get) => ({
     );
 
     writeJson(LS.devices, next);
-    syncToCloud({ devices: next }); // <--- 同步雲端
+    syncToCloud({ devices: next });
     set({ devices: next });
     return { ok: true };
   },
@@ -628,7 +689,7 @@ const useStore = create<Store>((set, get) => ({
   setMigrationFlag: (id, patch) => set((s) => {
     const next = s.devices.map((d) => d.id === id ? { ...d, migration: { ...d.migration, ...patch } } : d);
     writeJson(LS.devices, next);
-    syncToCloud({ devices: next }); // <--- 同步雲端
+    syncToCloud({ devices: next });
     return { devices: next };
   }),
 
@@ -641,7 +702,7 @@ const useStore = create<Store>((set, get) => ({
       return { ...d, beforeRackId, afterRackId };
     });
     writeJson(LS.devices, repaired);
-    syncToCloud({ devices: repaired }); // <--- 同步雲端
+    syncToCloud({ devices: repaired });
     return { devices: repaired };
   }),
 }));
@@ -745,7 +806,6 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
 
 function DeviceModal({ title, initial, onClose, onSave }: { title: string; initial: DeviceDraft; onClose: () => void; onSave: (d: DeviceDraft) => void; }) {
   const [d, setD] = useState<DeviceDraft>(initial);
-  const portsOptions = [8, 16, 24, 48, 72];
   const input = (k: keyof DeviceDraft) => (e: any) => setD((p) => ({ ...p, [k]: e.target.value } as any));
   const portLines = (d.portMap ?? "").split(/\r?\n/);
 
@@ -760,7 +820,7 @@ function DeviceModal({ title, initial, onClose, onSave }: { title: string; initi
             <div><label className="text-xs text-[var(--muted)]">設備名稱</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)]" value={d.name} onChange={input("name")} /></div>
             <div><label className="text-xs text-[var(--muted)]">廠牌</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none" value={d.brand} onChange={input("brand")} /></div>
             <div><label className="text-xs text-[var(--muted)]">型號</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none" value={d.model} onChange={input("model")} /></div>
-            <div><label className="text-xs text-[var(--muted)]">Port數量</label><select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none" value={String(d.ports)} onChange={(e) => setD((p) => ({ ...p, ports: Number(e.target.value) }))}>{portsOptions.map((p) => (<option key={p} value={p}>{p}</option>))}</select></div>
+            <div><label className="text-xs text-[var(--muted)]">Port數量</label><input type="number" min={0} className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none" value={d.ports} onChange={(e) => setD((p) => ({ ...p, ports: Number(e.target.value) || 0 }))} /></div>
             <div><label className="text-xs text-[var(--muted)]">占用高度(U)</label><input type="number" min={1} max={42} className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none" value={d.sizeU} onChange={(e) => setD((p) => ({ ...p, sizeU: Number(e.target.value) || 1 }))} /></div>
             <div><label className="text-xs text-[var(--muted)]">設備IP</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none" value={d.ip ?? ""} onChange={input("ip")} placeholder="10.0.0.10" /></div>
             <div><label className="text-xs text-[var(--muted)]">序號</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none" value={d.serial ?? ""} onChange={input("serial")} /></div>
@@ -862,6 +922,95 @@ function FullCSVImportModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+/* ==========================================
+   (NEW) 設備資產清單 PDF 匯出視窗 - 橫式 A4
+========================================== */
+function DeviceListReportModal({ onClose }: { onClose: () => void }) {
+  const devices = useStore((s) => s.devices);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const element = document.getElementById("pdf-report-content");
+      if (!element) return;
+      const canvas = await html2canvas(element, { scale: 2, useCORS: true });
+      const imgData = canvas.toDataURL("image/png");
+      // "l" 代表 Landscape 橫式
+      const pdf = new jsPDF("l", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`MigratePro_資產清單_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch (error) {
+      alert("匯出失敗：" + error);
+    } finally {
+      setIsExporting(false);
+      onClose();
+    }
+  };
+
+  const total = devices.length;
+  const completed = devices.filter((d) => isMigratedComplete(d.migration)).length;
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-5xl bg-[var(--panel)] border border-[var(--border)] rounded-3xl shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="p-4 border-b border-[var(--border)] flex justify-between items-center shrink-0">
+          <h3 className="text-xl font-black flex items-center gap-2"><FileText className="text-[var(--accent)]" /> 設備清單報表預覽 (橫式)</h3>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 disabled:opacity-50" disabled={isExporting}>取消</button>
+            <button onClick={handleExport} disabled={isExporting} className="px-4 py-2 rounded-xl bg-[var(--accent)] text-black font-extrabold hover:opacity-90 flex items-center gap-2">
+              {isExporting ? "產生中..." : "下載 PDF"}
+            </button>
+          </div>
+        </div>
+        <div className="p-6 overflow-y-auto bg-gray-500/10 flex justify-center">
+          {/* A4 橫式尺寸: 297mm x 210mm */}
+          <div id="pdf-report-content" className="bg-white text-black p-10 w-[297mm] min-h-[210mm] shadow-lg shrink-0">
+            <h1 className="text-3xl font-black text-center mb-6 text-gray-800 border-b-2 border-gray-300 pb-4">MigratePro 設備搬遷專案總表</h1>
+            <div className="flex justify-between mb-6 text-sm">
+              <div><span className="font-bold text-gray-600">匯出日期：</span> {new Date().toLocaleDateString()}</div>
+              <div><span className="font-bold text-gray-600">專案進度：</span> {completed} / {total} 台已完成</div>
+            </div>
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-gray-100 text-gray-700">
+                  <th className="border border-gray-300 p-2 font-bold">編號</th>
+                  <th className="border border-gray-300 p-2 font-bold">設備名稱</th>
+                  <th className="border border-gray-300 p-2 font-bold">廠牌/型號</th>
+                  <th className="border border-gray-300 p-2 font-bold">搬遷前位置</th>
+                  <th className="border border-gray-300 p-2 font-bold">搬遷後位置</th>
+                  <th className="border border-gray-300 p-2 text-center font-bold">狀態</th>
+                </tr>
+              </thead>
+              <tbody>
+                {devices.map(d => {
+                  const before = d.beforeRackId && d.beforeStartU != null ? `${d.beforeRackId.replace(/^BEF_/, "")} (${d.beforeStartU}U)` : "-";
+                  const after = d.afterRackId && d.afterStartU != null ? `${d.afterRackId.replace(/^AFT_/, "")} (${d.afterStartU}U)` : "-";
+                  const isDone = isMigratedComplete(d.migration);
+                  return (
+                    <tr key={d.id}>
+                      <td className="border border-gray-300 p-2 font-bold">{d.deviceId}</td>
+                      <td className="border border-gray-300 p-2">{d.name}</td>
+                      <td className="border border-gray-300 p-2">{d.brand} / {d.model}</td>
+                      <td className="border border-gray-300 p-2">{before}</td>
+                      <td className="border border-gray-300 p-2">{after}</td>
+                      <td className={`border border-gray-300 p-2 text-center font-bold ${isDone ? "text-green-600" : "text-red-500"}`}>
+                        {isDone ? "完成" : "未完成"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 type SortKey = "category" | "deviceId" | "name" | "brand" | "model" | "ports" | "sizeU" | "before" | "after" | "migration" | "complete";
 type SortDir = "asc" | "desc";
 
@@ -877,6 +1026,7 @@ const DevicesPage = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [editing, setEditing] = useState<Device | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false); // 控制 PDF 視窗
   const [sortKey, setSortKey] = useState<SortKey>("deviceId");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -933,11 +1083,17 @@ const DevicesPage = () => {
       <div className="flex flex-wrap gap-3 justify-between items-end mb-6">
         <div>
           <h2 className="text-2xl font-black text-[var(--accent)]">設備資產清單</h2>
-          <p className="text-[var(--muted)] text-sm">{allowManage ? "新增/編輯/刪除設備；刪除會同步移除搬遷前與搬遷後機櫃配置。" : "Vendor 權限：可查看、可匯出完整 CSV、可切換搬遷後燈號，但不能調整機櫃佈局/新增/刪除/匯入。"}</p>
+          <p className="text-[var(--muted)] text-sm">{allowManage ? "新增/編輯/刪除設備；刪除會同步移除搬遷前與搬遷後機櫃配置。" : "Vendor 權限：可查看、可匯出 PDF/CSV、可切換搬遷後燈號，但不能新增/刪除/匯入。"}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           {allowManage && (<button onClick={() => setImportOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2"><Upload size={16} /> 完整CSV還原</button>)}
           <button onClick={() => canExportCSV(role) && downloadFullCSV(devices)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2"><Download size={16} /> 完整CSV備份</button>
+          
+          {/* 加入清單 PDF 匯出按鈕 (所有權限皆可) */}
+          <button onClick={() => setReportOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-[var(--text)]">
+            <FileText size={16} /> 匯出清單 PDF
+          </button>
+
           {allowManage && (<button onClick={() => setIsAdding(true)} className="bg-[var(--accent)] text-black px-4 py-2 rounded-xl font-extrabold flex items-center gap-2 hover:opacity-90"><Plus size={18} /> 新增設備</button>)}
         </div>
       </div>
@@ -989,6 +1145,7 @@ const DevicesPage = () => {
       </div>
 
       {importOpen && <FullCSVImportModal onClose={() => setImportOpen(false)} />}
+      {reportOpen && <DeviceListReportModal onClose={() => setReportOpen(false)} />}
       {isAdding && (<DeviceModal title="新增設備" initial={{ category: "Other", deviceId: "", name: "", brand: "", model: "", ports: 8, sizeU: 1, ip: "", serial: "", portMap: "" }} onClose={() => setIsAdding(false)} onSave={(d) => { addDevice(d); setIsAdding(false); }} />)}
       {editing && (<DeviceModal title="編輯設備" initial={{ category: editing.category, deviceId: editing.deviceId, name: editing.name, brand: editing.brand, model: editing.model, ports: editing.ports, sizeU: editing.sizeU, ip: editing.ip ?? "", serial: editing.serial ?? "", portMap: editing.portMap ?? "" }} onClose={() => setEditing(null)} onSave={(d) => { updateDevice(editing.id, d); setEditing(null); }} />)}
     </div>
@@ -996,47 +1153,33 @@ const DevicesPage = () => {
 };
 
 /* -----------------------------
-  Hover Card (tooltip) - Glassmorphism (強制使用 Inline Style 保證毛玻璃生效)
+  Hover Card (tooltip) - Glassmorphism
 ----------------------------- */
 function HoverCard({ x, y, d, beforePos, afterPos }: { x: number; y: number; d: Device; beforePos: string; afterPos: string; }) {
   return (
     <div className="fixed z-[9999] pointer-events-none" style={{ left: x + 16, top: y + 16 }}>
-      {/* 強制內聯毛玻璃樣式，保證跨環境皆可顯示 */}
       <div 
         className="rounded-2xl border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.5)] w-[320px] p-4 text-left text-white"
-        style={{
-          backgroundColor: "rgba(15, 23, 42, 0.75)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)" // 支援 Safari
-        }}
+        style={{ backgroundColor: "rgba(15, 23, 42, 0.75)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}
       >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="text-[10px] text-gray-300 font-medium">設備資訊</div>
             <div className="font-black text-sm truncate text-white">{d.deviceId} · {d.name}</div>
-            <div className="text-[11px] text-gray-300 truncate mt-0.5">
-              {d.brand} / {d.model} · {d.sizeU}U · {d.ports} ports
-            </div>
+            <div className="text-[11px] text-gray-300 truncate mt-0.5">{d.brand} / {d.model} · {d.sizeU}U · {d.ports} ports</div>
           </div>
-          <div className="pt-1">
-            <LampsRow m={d.migration} />
-          </div>
+          <div className="pt-1"><LampsRow m={d.migration} /></div>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-xl border border-white/10 bg-white/10 p-2">
-            <div className="text-[10px] text-gray-400">搬遷前</div>
-            <div className="font-bold truncate text-white">{beforePos}</div>
+            <div className="text-[10px] text-gray-400">搬遷前</div><div className="font-bold truncate text-white">{beforePos}</div>
           </div>
           <div className="rounded-xl border border-white/10 bg-white/10 p-2">
-            <div className="text-[10px] text-gray-400">搬遷後</div>
-            <div className="font-bold truncate text-white">{afterPos}</div>
+            <div className="text-[10px] text-gray-400">搬遷後</div><div className="font-bold truncate text-white">{afterPos}</div>
           </div>
         </div>
-
-        <div className="mt-3 text-[11px] text-gray-400 truncate">
-          IP：{d.ip || "-"}　SN：{d.serial || "-"}
-        </div>
+        <div className="mt-3 text-[11px] text-gray-400 truncate">IP：{d.ip || "-"}　SN：{d.serial || "-"}</div>
       </div>
     </div>
   );
@@ -1106,7 +1249,7 @@ function AddAndPlaceModal({ mode, rackId, u, onClose }: { mode: PlacementMode; r
 }
 
 /* -----------------------------
-  Rack Planner (NEW REDESIGN 完美對齊 1U 格線)
+  Rack Planner (包含機櫃佈局 PDF 匯出)
 ----------------------------- */
 const isNoMoveRack = (name: string) => name.startsWith("不搬存放區");
 
@@ -1127,11 +1270,52 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
   const [hoverInfo, setHoverInfo] = useState<HoverInfo | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [addPlace, setAddPlace] = useState<{ rackId: string; u: number } | null>(null);
+  
+  // (NEW) PDF 匯出狀態
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   useEffect(() => {
     repairRackIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
+
+  // (NEW) 處理機櫃圖 PDF 匯出
+  const handleExportRackPDF = () => {
+    setIsExportingPDF(true); // 觸發版面切換 (將機櫃折行顯示，避免截圖被切斷)
+    
+    setTimeout(async () => {
+      try {
+        const element = document.getElementById("pdf-rack-content");
+        if (!element) return;
+        
+        // 抓圖，強制使用暗色系背景以符合機櫃視覺
+        const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#0f172a" });
+        const imgData = canvas.toDataURL("image/png");
+        
+        const pdf = new jsPDF("l", "mm", "a4");
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        let finalH = (canvas.height * pdfWidth) / canvas.width;
+        let finalW = pdfWidth;
+
+        // 若排版過長超出 A4 高度，則依高度來縮小寬度
+        if (finalH > pdf.internal.pageSize.getHeight()) {
+            finalH = pdf.internal.pageSize.getHeight();
+            finalW = (canvas.width * finalH) / canvas.height;
+        }
+        
+        // 置中
+        const x = (pdf.internal.pageSize.getWidth() - finalW) / 2;
+        const y = (pdf.internal.pageSize.getHeight() - finalH) / 2;
+
+        pdf.addImage(imgData, "PNG", x, y, finalW, finalH);
+        pdf.save(`MigratePro_機櫃佈局_${mode === 'before' ? '搬遷前' : '搬遷後'}_${new Date().toISOString().slice(0,10)}.pdf`);
+      } catch (error) {
+        alert("匯出失敗：" + error);
+      } finally {
+        setIsExportingPDF(false); // 恢復原本版面
+      }
+    }, 500); // 延遲 500ms 讓 Tailwind CSS 有時間重繪成換行版面
+  };
 
   const rackIdSet = useMemo(() => new Set(racks.map((r) => r.id)), [racks]);
   const isPlaced = (d: Device) => {
@@ -1166,7 +1350,6 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
       .filter((d) => { const s = mode === "before" ? d.beforeStartU : d.afterStartU; const e = mode === "before" ? d.beforeEndU : d.afterEndU; return s != null && e != null; })
       .sort((a, b) => { const as = (mode === "before" ? a.beforeStartU : a.afterStartU) ?? 999; const bs = (mode === "before" ? b.beforeStartU : b.afterStartU) ?? 999; return as - bs; });
 
-  // 1U 的固定高度，用於絕對定位計算
   const U_H = 20;
 
   const getBlockStyle = (d: Device) => {
@@ -1219,35 +1402,46 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
           </p>
         </div>
         
-        {/* 類別顏色圖例 */}
-        <div className="flex gap-3 bg-[var(--panel)] p-2.5 rounded-xl border border-[var(--border)] shadow-sm text-xs font-bold shrink-0 flex-wrap">
-          <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Network }}></div> Network</div>
-          <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Server }}></div> Server</div>
-          <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Storage }}></div> Storage</div>
-          <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Other }}></div> Other</div>
+        <div className="flex items-center gap-4 flex-wrap">
+          {/* 類別顏色圖例 */}
+          <div className="flex gap-3 bg-[var(--panel)] p-2.5 rounded-xl border border-[var(--border)] shadow-sm text-xs font-bold shrink-0 flex-wrap">
+            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Network }}></div> Network</div>
+            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Server }}></div> Server</div>
+            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Storage }}></div> Storage</div>
+            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Other }}></div> Other</div>
+          </div>
+          
+          {/* (NEW) 匯出機櫃圖按鈕 */}
+          <button 
+            onClick={handleExportRackPDF} 
+            disabled={isExportingPDF}
+            className="px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--panel)] hover:bg-[var(--accent)] hover:text-black hover:border-[var(--accent)] font-bold transition-all flex items-center gap-2"
+          >
+            <Camera size={16} /> {isExportingPDF ? "準備截圖中..." : "匯出佈局 PDF"}
+          </button>
         </div>
       </div>
 
       <UnplacedPanel mode={mode} unplaced={unplaced} collapsed={collapsed} setCollapsed={setCollapsed} allowLayout={allowLayout} />
 
-      <div className="space-y-8 overflow-hidden">
+      {/* 匯出 PDF 時，我們會動態改變 class，移除 overflow-x-auto 變成 flex-wrap 
+          這樣機櫃就不會被橫向隱藏，而是換行全部顯示，讓 html2canvas 可以一次捕捉所有畫面！
+      */}
+      <div id="pdf-rack-content" className={`transition-all duration-300 ${isExportingPDF ? "space-y-8 bg-slate-900 p-8 rounded-2xl" : "space-y-8 overflow-hidden"}`}>
         {rackRows.map((row, idx) => (
-          <div key={idx} className="flex gap-6 overflow-x-auto pb-4 items-start snap-x">
+          <div key={idx} className={`flex gap-6 pb-4 items-start ${isExportingPDF ? "flex-wrap justify-center" : "overflow-x-auto snap-x"}`}>
             {row.map((rack) => (
-              <div key={rack.id} className="flex flex-col bg-[var(--panel)] rounded-xl shadow-lg border border-[var(--border)] overflow-hidden flex-shrink-0 snap-center w-[340px]">
+              <div key={rack.id} className={`flex flex-col bg-[var(--panel)] rounded-xl shadow-lg border border-[var(--border)] overflow-hidden flex-shrink-0 w-[340px] ${!isExportingPDF && "snap-center"}`}>
                 <div className={`p-4 ${mode === "after" && isNoMoveRack(rack.name) ? "bg-red-800" : mode === "after" ? "bg-emerald-600" : "bg-slate-800"} text-white flex justify-between items-center`}>
                   <h2 className="font-bold text-base flex items-center gap-2 truncate text-white"><Server size={18} />{rack.name}</h2>
                   <span className="text-[10px] bg-white/20 px-2 py-1 rounded whitespace-nowrap text-white">42U</span>
                 </div>
 
                 <div className="flex-1 overflow-y-hidden p-4 bg-slate-100 dark:bg-black/20 flex justify-center">
-                  {/* Rack Frame 容器 */}
                   <div className="relative w-full border-x-[12px] border-t-[12px] border-slate-400 dark:border-slate-600 bg-slate-900 rounded-t-lg shadow-inner mb-4" style={{ height: 42 * U_H }}>
                     
-                    {/* 左側 U 數刻度列背景 */}
                     <div className="absolute left-0 top-0 bottom-0 w-7 sm:w-8 bg-yellow-400/90 border-r border-slate-800 z-0" />
 
-                    {/* 繪製 42 個格線與刻度 */}
                     {Array.from({ length: 42 }).map((_, i) => {
                       const u = i + 1;
                       const bottomPos = i * U_H;
@@ -1264,7 +1458,6 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
                       );
                     })}
 
-                    {/* 設備層 */}
                     <div className="absolute left-7 sm:left-8 right-0 top-0 bottom-0 pointer-events-none z-10">
                       {listForRack(rack.id).map((d) => {
                         const { bottom, height } = getBlockStyle(d);
@@ -1282,8 +1475,8 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
                             onMouseLeave={() => { setHoverId(null); setHoverInfo(null); }}
                             className={`absolute left-[2px] right-[2px] rounded flex flex-row items-center px-2 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] transition-all pointer-events-auto overflow-hidden ${isHovered ? "brightness-125 scale-[1.01] z-20 shadow-[0_0_15px_rgba(56,189,248,0.4)]" : "z-10"}`}
                             style={{
-                              bottom: bottom + 1, // 留出分隔線的縫隙
-                              height: height - 2, // 完美符合格子大小
+                              bottom: bottom + 1,
+                              height: height - 2,
                               backgroundColor: catColor(d.category),
                               backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.2) 100%)",
                               cursor: allowLayout ? "grab" : "pointer",
@@ -1295,7 +1488,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
                               ) : (<div className="truncate w-full font-bold text-[8px] sm:text-[9px] leading-tight">{d.deviceId} | {d.name} | {d.model}</div>)}
                             </div>
                             <div className="absolute bottom-1 right-1 flex items-center bg-black/40 px-1 py-[2px] rounded shadow-inner pointer-events-none scale-[0.7] sm:scale-[0.8] origin-bottom-right"><LampsRow m={d.migration} /></div>
-                            {allowLayout && isHovered && (
+                            {allowLayout && isHovered && !isExportingPDF && (
                               <button onClick={(e) => { e.stopPropagation(); clearPlacement(mode, d.id); setHoverId(null); setHoverInfo(null); }} className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-red-500 text-white shadow-lg hover:bg-red-400 z-30 pointer-events-auto scale-75">
                                 <X size={12} />
                               </button>
@@ -1304,7 +1497,6 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
                         );
                       })}
                     </div>
-                    {/* 底座 */}
                     <div className="absolute -bottom-4 left-[-12px] right-[-12px] h-4 bg-slate-500 dark:bg-slate-700 rounded-b-sm shadow-md"></div>
                   </div>
                 </div>
@@ -1314,8 +1506,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
         ))}
       </div>
       {addPlace && <AddAndPlaceModal mode={mode} rackId={addPlace.rackId} u={addPlace.u} onClose={() => setAddPlace(null)} />}
-      {/* 毛玻璃卡片 */}
-      {hoverInfo && <HoverCard {...hoverInfo} />}
+      {hoverInfo && !isExportingPDF && <HoverCard {...hoverInfo} />}
     </div>
   );
 };

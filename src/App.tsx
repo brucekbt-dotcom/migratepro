@@ -27,6 +27,7 @@ import {
   Save,
   Sparkles,
   FileText,
+  FilePlus,
 } from "lucide-react";
 import {
   BarChart,
@@ -276,7 +277,7 @@ const syncToCloud = async (patch: any) => {
 };
 
 /* -----------------------------
-  CSV 工具函式
+  CSV 工具函式 (包含完整備份與批量添加)
 ----------------------------- */
 const escapeCSV = (str: string | number | undefined | null) => {
   if (str == null) return "";
@@ -284,6 +285,7 @@ const escapeCSV = (str: string | number | undefined | null) => {
   return `"${s}"`;
 };
 
+// --- 完整備份功能 ---
 const CSV_HEADER = "id,category,deviceId,name,brand,model,ports,sizeU,ip,serial,portMap,beforeRackId,beforeStartU,beforeEndU,afterRackId,afterStartU,afterEndU,m_racked,m_cabled,m_powered,m_tested";
 
 const downloadFullCSV = (devices: Device[]) => {
@@ -310,12 +312,28 @@ const downloadFullCSVTemplate = () => {
   const encodedUri = encodeURI(csvContent);
   const link = document.createElement("a");
   link.setAttribute("href", encodedUri);
-  link.setAttribute("download", "MigratePro_匯入範本.csv");
+  link.setAttribute("download", "MigratePro_完整還原範本.csv");
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
 };
 
+// --- 批量添加設備功能 ---
+const APPEND_CSV_HEADER = "category,deviceId,name,brand,model,ports,sizeU,ip,serial,portMap";
+const APPEND_CSV_SAMPLE = "Server,SRV-001,範例伺服器,Dell,R740,4,2,192.168.1.100,SN12345,Eth1 -> Switch";
+
+const downloadAppendCSVTemplate = () => {
+  const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + APPEND_CSV_HEADER + "\n" + APPEND_CSV_SAMPLE + "\n";
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", "MigratePro_批量添加範本.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+// --- 解析 CSV ---
 const parseCSV = (str: string): string[][] => {
   const arr: string[][] = [];
   let quote = false;
@@ -488,6 +506,7 @@ interface Store {
   deleteDeviceById: (id: string) => void;
 
   importFullCSV: (fileText: string) => { ok: boolean; message?: string };
+  appendDevicesFromCSV: (fileText: string) => { ok: boolean; message?: string };
 
   clearPlacement: (mode: PlacementMode, id: string) => void;
   place: (mode: PlacementMode, deviceId: string, rackId: string, startU: number) => { ok: boolean; message?: string };
@@ -644,6 +663,53 @@ const useStore = create<Store>((set, get) => ({
       } catch (e: any) {
         return { ok: false, message: e?.message || "匯入失敗" };
       }
+  },
+
+  appendDevicesFromCSV: (fileText) => {
+    try {
+      const rows = parseCSV(fileText);
+      if (rows.length < 2) return { ok: false, message: "CSV 內容不足" };
+      const header = rows[0].map((x) => x.trim());
+      const idx = (k: string) => header.findIndex((h) => h === k);
+      const getv = (r: string[], k: string) => String(r[idx(k)] ?? "").trim();
+
+      const newDevices: Device[] = [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (r.length < 3) continue; // 略過空白行
+        const deviceId = getv(r, "deviceId");
+        const name = getv(r, "name");
+        
+        if (!deviceId || !name) continue;
+
+        newDevices.push({
+          id: crypto.randomUUID(),
+          category: (getv(r, "category") as DeviceCategory) || "Other",
+          deviceId,
+          name,
+          brand: getv(r, "brand"),
+          model: getv(r, "model"),
+          ports: Number(getv(r, "ports") || 0),
+          sizeU: Math.max(1, Math.min(42, Number(getv(r, "sizeU") || 1))),
+          ip: getv(r, "ip"),
+          serial: getv(r, "serial"),
+          portMap: getv(r, "portMap"),
+          migration: { racked: false, cabled: false, powered: false, tested: false },
+        });
+      }
+
+      if (newDevices.length === 0) return { ok: false, message: "找不到有效的設備資料（設備編號與名稱必填）" };
+
+      const currentDevices = get().devices;
+      const updatedDevices = [...currentDevices, ...newDevices];
+
+      writeJson(LS.devices, updatedDevices);
+      syncToCloud({ devices: updatedDevices });
+      set({ devices: updatedDevices });
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, message: e?.message || "匯入失敗" };
+    }
   },
 
   clearPlacement: (mode, id) => set((s) => {
@@ -891,6 +957,9 @@ const Dashboard = () => {
   );
 };
 
+/* -----------------------------
+  完整 CSV 還原視窗 (覆蓋原檔)
+----------------------------- */
 function FullCSVImportModal({ onClose }: { onClose: () => void }) {
   const importFullCSV = useStore((s) => s.importFullCSV);
   const [drag, setDrag] = useState(false);
@@ -906,13 +975,58 @@ function FullCSVImportModal({ onClose }: { onClose: () => void }) {
       <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl">
         <div className="p-6">
           <div className="flex items-center justify-between"><div className="text-xl font-black">完整 CSV 還原（含佈局/燈號）</div><button onClick={onClose} className="p-2 rounded-xl hover:bg-white/5"><X /></button></div>
-          <div className="mt-3 text-sm text-[var(--muted)]">拖曳 CSV 到下方區域，或點擊選取檔案。此功能會以 CSV 內容覆蓋現有資料。</div>
+          <div className="mt-3 text-sm text-[var(--muted)] text-red-400">⚠️ 警告：此功能會覆蓋並清空現有所有資料，請確認您上傳的是完整的備份檔。</div>
           <div className="mt-4 flex gap-2 flex-wrap"><button onClick={downloadFullCSVTemplate} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2"><Download size={16} /> 下載完整範本</button></div>
           <label onDragEnter={() => setDrag(true)} onDragLeave={() => setDrag(false)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); setDrag(false); const file = e.dataTransfer.files?.[0]; if (file) handleFile(file); }} className={`mt-4 block w-full rounded-2xl border-2 border-dashed p-8 text-center cursor-pointer transition-all ${drag ? "border-[var(--accent)] bg-white/5" : "border-[var(--border)] bg-black/10"}`}>
             <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
             <div className="flex flex-col items-center gap-3">
               <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: "linear-gradient(135deg,var(--accent),var(--accent2))" }}><Upload className="text-black" /></div>
-              <div className="font-black">拖曳完整 CSV 到這裡上傳</div><div className="text-xs text-[var(--muted)]">或點擊選取檔案</div>
+              <div className="font-black">拖曳「完整備份 CSV」到這裡上傳</div><div className="text-xs text-[var(--muted)]">或點擊選取檔案</div>
+            </div>
+          </label>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+/* -----------------------------
+  CSV 批量添加設備視窗 (不覆蓋)
+----------------------------- */
+function AppendCSVImportModal({ onClose }: { onClose: () => void }) {
+  const appendDevicesFromCSV = useStore((s) => s.appendDevicesFromCSV);
+  const [drag, setDrag] = useState(false);
+
+  const handleFile = async (file: File) => {
+    const text = await file.text();
+    const res = appendDevicesFromCSV(text);
+    if (!res.ok) alert(res.message || "匯入失敗"); else onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl">
+        <div className="p-6">
+          <div className="flex items-center justify-between">
+            <div className="text-xl font-black flex items-center gap-2 text-[var(--accent)]"><FilePlus /> CSV 批量添加設備</div>
+            <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/5"><X /></button>
+          </div>
+          <div className="mt-3 text-sm text-[var(--text)]">
+            此功能會將 CSV 內的設備 <span className="font-bold text-[var(--accent2)]">加入到現有清單的尾端</span>，不會覆蓋或刪除目前的任何資料。
+          </div>
+          <div className="mt-4 flex gap-2 flex-wrap">
+            <button onClick={downloadAppendCSVTemplate} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2">
+              <Download size={16} /> 下載批量添加專用範本
+            </button>
+          </div>
+          <label onDragEnter={() => setDrag(true)} onDragLeave={() => setDrag(false)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); setDrag(false); const file = e.dataTransfer.files?.[0]; if (file) handleFile(file); }} className={`mt-4 block w-full rounded-2xl border-2 border-dashed p-8 text-center cursor-pointer transition-all ${drag ? "border-[var(--accent)] bg-white/5" : "border-[var(--border)] bg-black/10"}`}>
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: "linear-gradient(135deg,var(--accent2),var(--accent))" }}>
+                <Plus className="text-black" size={24} />
+              </div>
+              <div className="font-black">拖曳「添加用 CSV」到這裡上傳</div>
+              <div className="text-xs text-[var(--muted)]">或點擊選取檔案</div>
             </div>
           </label>
         </div>
@@ -935,7 +1049,6 @@ function DeviceListReportModal({ onClose }: { onClose: () => void }) {
       if (!element) return;
       const canvas = await html2canvas(element, { scale: 2, useCORS: true });
       const imgData = canvas.toDataURL("image/png");
-      // "l" 代表 Landscape 橫式
       const pdf = new jsPDF("l", "mm", "a4");
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
@@ -965,7 +1078,6 @@ function DeviceListReportModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="p-6 overflow-y-auto bg-gray-500/10 flex justify-center">
-          {/* A4 橫式尺寸: 297mm x 210mm */}
           <div id="pdf-report-content" className="bg-white text-black p-10 w-[297mm] min-h-[210mm] shadow-lg shrink-0">
             <h1 className="text-3xl font-black text-center mb-6 text-gray-800 border-b-2 border-gray-300 pb-4">MigratePro 設備搬遷專案總表</h1>
             <div className="flex justify-between mb-6 text-sm">
@@ -1025,6 +1137,7 @@ const DevicesPage = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [editing, setEditing] = useState<Device | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [appendOpen, setAppendOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("deviceId");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -1085,14 +1198,22 @@ const DevicesPage = () => {
           <p className="text-[var(--muted)] text-sm">{allowManage ? "新增/編輯/刪除設備；刪除會同步移除搬遷前與搬遷後機櫃配置。" : "Vendor 權限：可查看、可匯出 PDF/CSV、可切換搬遷後燈號，但不能新增/刪除/匯入。"}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          {allowManage && (<button onClick={() => setImportOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2"><Upload size={16} /> 完整CSV還原</button>)}
           <button onClick={() => canExportCSV(role) && downloadFullCSV(devices)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2"><Download size={16} /> 完整CSV備份</button>
-          
-          <button onClick={() => setReportOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-[var(--text)]">
-            <FileText size={16} /> 匯出清單 PDF
-          </button>
+          <button onClick={() => setReportOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-[var(--text)]"><FileText size={16} /> 匯出清單 PDF</button>
 
-          {allowManage && (<button onClick={() => setIsAdding(true)} className="bg-[var(--accent)] text-black px-4 py-2 rounded-xl font-extrabold flex items-center gap-2 hover:opacity-90"><Plus size={18} /> 新增設備</button>)}
+          {allowManage && (
+            <>
+              <button onClick={() => setAppendOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--accent2)] text-[var(--accent2)] hover:bg-white/5 flex items-center gap-2 font-bold">
+                <FilePlus size={16} /> CSV批量添加
+              </button>
+              <button onClick={() => setImportOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--border)] text-[var(--muted)] hover:bg-white/5 flex items-center gap-2 text-xs">
+                <Upload size={14} /> 完整覆蓋還原
+              </button>
+              <button onClick={() => setIsAdding(true)} className="bg-[var(--accent)] text-black px-4 py-2 rounded-xl font-extrabold flex items-center gap-2 hover:opacity-90">
+                <Plus size={18} /> 新增單筆設備
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1143,6 +1264,7 @@ const DevicesPage = () => {
       </div>
 
       {importOpen && <FullCSVImportModal onClose={() => setImportOpen(false)} />}
+      {appendOpen && <AppendCSVImportModal onClose={() => setAppendOpen(false)} />}
       {reportOpen && <DeviceListReportModal onClose={() => setReportOpen(false)} />}
       {isAdding && (<DeviceModal title="新增設備" initial={{ category: "Other", deviceId: "", name: "", brand: "", model: "", ports: 8, sizeU: 1, ip: "", serial: "", portMap: "" }} onClose={() => setIsAdding(false)} onSave={(d) => { addDevice(d); setIsAdding(false); }} />)}
       {editing && (<DeviceModal title="編輯設備" initial={{ category: editing.category, deviceId: editing.deviceId, name: editing.name, brand: editing.brand, model: editing.model, ports: editing.ports, sizeU: editing.sizeU, ip: editing.ip ?? "", serial: editing.serial ?? "", portMap: editing.portMap ?? "" }} onClose={() => setEditing(null)} onSave={(d) => { updateDevice(editing.id, d); setEditing(null); }} />)}
@@ -1184,7 +1306,7 @@ function HoverCard({ x, y, d, beforePos, afterPos }: { x: number; y: number; d: 
 }
 
 /* -----------------------------
-  Unplaced Panel
+  ★ Unplaced Panel (加入 Sticky 黏性定位，往下滾動時固定在頂部) ★
 ----------------------------- */
 function UnplacedPanel({ mode, unplaced, collapsed, setCollapsed, allowLayout }: { mode: PlacementMode; unplaced: Device[]; collapsed: boolean; setCollapsed: (v: boolean) => void; allowLayout: boolean; }) {
   useEffect(() => {
@@ -1193,7 +1315,8 @@ function UnplacedPanel({ mode, unplaced, collapsed, setCollapsed, allowLayout }:
   }, [unplaced.length]);
 
   return (
-    <div className="bg-[var(--panel)] border border-[var(--border)] rounded-2xl shadow-2xl overflow-hidden mb-6">
+    // 使用 sticky、top-[80px] 以及 backdrop-blur 來製作懸浮的半透明面板
+    <div className="sticky top-[80px] z-[40] bg-[var(--panel)]/95 backdrop-blur-xl border border-[var(--border)] rounded-2xl shadow-2xl overflow-hidden mb-6 transition-all duration-300">
       <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="font-black">未放置設備</div>
@@ -1247,7 +1370,7 @@ function AddAndPlaceModal({ mode, rackId, u, onClose }: { mode: PlacementMode; r
 }
 
 /* -----------------------------
-  Rack Planner (無佈局圖匯出版)
+  Rack Planner
 ----------------------------- */
 const isNoMoveRack = (name: string) => name.startsWith("不搬存放區");
 
@@ -1355,7 +1478,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
             {title}
           </h2>
           <p className="text-[var(--muted)] text-sm font-medium mt-1">
-            {allowLayout ? "拖拉設備到機櫃；已放置設備也可再拖拉調整位置（含 U 重疊檢查）" : "Vendor：只能查看（不可拖放/不可調整機櫃佈局），但可在搬遷後切換燈號"}
+            {allowLayout ? "拖拉設備到機櫃；往下滾動時，未放置設備面板會懸浮在上方方便拖放" : "Vendor：只能查看（不可拖放/不可調整機櫃佈局），但可在搬遷後切換燈號"}
           </p>
         </div>
         

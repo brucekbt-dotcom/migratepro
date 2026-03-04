@@ -26,7 +26,7 @@ import {
   Sparkles,
   FilePlus,
   Network,
-  Globe // ★ 新增地球圖示
+  Globe
 } from "lucide-react";
 import {
   BarChart,
@@ -67,7 +67,7 @@ type DeviceCategory = "Network" | "Storage" | "Server" | "Other";
 type PlacementMode = "before" | "after";
 
 type Role = "admin" | "vendor" | "cable";
-type Lang = "zh" | "en" | "ko"; // ★ 新增語言型別
+type Lang = "zh" | "en" | "ko";
 
 type MigrationFlags = {
   racked: boolean;
@@ -140,7 +140,7 @@ const LS = {
   auth: "migrate.auth",
   user: "migrate.user",
   accounts: "migrate.accounts",
-  lang: "migrate.lang", // ★ 儲存語言設定
+  lang: "migrate.lang",
 } as const;
 
 /* -----------------------------
@@ -260,7 +260,7 @@ const syncToCloud = async (patch: any) => {
 };
 
 /* -----------------------------
-  CSV 工具函式
+  CSV 工具函式 (最穩定的 encodeURIComponent 防彈版)
 ----------------------------- */
 const escapeCSV = (str: string | number | undefined | null) => {
   if (str == null) return "";
@@ -405,7 +405,7 @@ interface Store {
 
   theme: ThemeMode;
   themeStyle: ThemeStyle;
-  lang: Lang; // ★ 語言狀態
+  lang: Lang;
   page: PageKey;
   selectedDeviceId: string | null;
   ui: UiState;
@@ -426,7 +426,7 @@ interface Store {
   setPage: (p: PageKey) => void;
   toggleTheme: () => void;
   setThemeStyle: (s: ThemeStyle) => void;
-  setLang: (l: Lang) => void; // ★ 語言切換
+  setLang: (l: Lang) => void;
   setSelectedDeviceId: (id: string | null) => void;
   setUi: (patch: Partial<UiState>) => void;
 
@@ -464,7 +464,7 @@ const useStore = create<Store>((set, get) => ({
 
   theme: (localStorage.getItem(LS.theme) as ThemeMode) || "dark",
   themeStyle: (localStorage.getItem(LS.themeStyle) as ThemeStyle) || "neon",
-  lang: (localStorage.getItem(LS.lang) as Lang) || "zh", // ★ 初始化語言
+  lang: (localStorage.getItem(LS.lang) as Lang) || "zh",
   page: "dashboard",
   selectedDeviceId: null,
   ui: { ...DEFAULT_UI, ...readJson<UiState>(LS.ui, DEFAULT_UI) },
@@ -519,7 +519,7 @@ const useStore = create<Store>((set, get) => ({
   setPage: (page) => set({ page }),
   toggleTheme: () => set((s) => { const next = s.theme === "dark" ? "light" : "dark"; localStorage.setItem(LS.theme, next); return { theme: next }; }),
   setThemeStyle: (themeStyle) => { localStorage.setItem(LS.themeStyle, themeStyle); set({ themeStyle }); },
-  setLang: (lang: Lang) => { localStorage.setItem(LS.lang, lang); set({ lang }); }, // ★ 寫入語言設定
+  setLang: (lang: Lang) => { localStorage.setItem(LS.lang, lang); set({ lang }); },
   setSelectedDeviceId: (selectedDeviceId) => set({ selectedDeviceId }),
   setUi: (patch) => set((s) => { const next = { ...s.ui, ...patch }; writeJson(LS.ui, next); return { ui: next }; }),
 
@@ -822,7 +822,6 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
         {curRacks.map(rack => {
           const rackDevs = devices.filter(d => d.afterRackId === rack.id && d.afterStartU != null && d.afterEndU != null);
           const isRed = rack.name.startsWith("不搬存放區");
-          // 支援多語系顯示名稱轉換
           let displayName = rack.name;
           if (displayName === "不搬存放區C") displayName = t("unplaced", lang);
 
@@ -835,14 +834,15 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
                   {rackDevs.map(d => {
                     const style = getPctStyle(d);
                     return (
-                      <div key={d.id} className="absolute left-[2px] right-[2px] rounded flex flex-row justify-between items-center pl-1 md:pl-2 pr-0.5 overflow-hidden shadow-md"
+                      // ★ 精品化排版：左右 flex，加入左側內邊距 pl-1.5 md:pl-2
+                      <div key={d.id} className="absolute left-[2px] right-[2px] rounded flex flex-row justify-between items-center pl-1.5 md:pl-2 overflow-hidden shadow-md"
                            style={{ ...style, backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.2) 100%)" }}>
                         
-                        {/* 左側設備編號：改為字重 medium，強制靠左 */}
-                        <div className="flex-1 text-[10px] xl:text-[12px] 2xl:text-[13px] text-white font-medium truncate text-left drop-shadow-md pr-1" title={d.deviceId}>{d.deviceId}</div>
+                        {/* 左側設備編號：font-medium (更細)、靠左對齊 text-left */}
+                        <div className="flex-1 text-[9px] xl:text-[11px] 2xl:text-[13px] text-white font-medium truncate text-left drop-shadow-md pr-1" title={d.deviceId}>{d.deviceId}</div>
                         
-                        {/* 右側燈號：包覆在暗色內陰影框，留邊 mr-1，縮小比例 */}
-                        <div className="flex shrink-0 items-center bg-black/40 rounded-md shadow-inner p-1 mr-0.5 md:mr-1 transform origin-right scale-[0.6] xl:scale-[0.75]">
+                        {/* 右側燈號：bg-black/40 內陰影，外加 mr-1 (留白邊距)，縮小比例 scale-[0.6] */}
+                        <div className="flex shrink-0 items-center bg-black/40 rounded-md shadow-inner p-1 mr-1 transform origin-right scale-[0.55] xl:scale-[0.65]">
                           <LampsRow m={d.migration} />
                         </div>
                       </div>
@@ -1628,15 +1628,21 @@ export default function App() {
         <div className="flex items-center gap-2 md:gap-4">
           <button onClick={toggleFs} className="p-2 hover:bg-white/5 rounded-xl" title="Full Screen">{isFs ? <Minimize size={18} /> : <Expand size={18} />}</button>
           
-          {/* ★ 新增：多語系切換器 */}
-          <div className="hidden sm:flex items-center gap-1.5 bg-[var(--panel2)] border border-[var(--border)] rounded-lg px-2 py-1">
-            <Globe size={14} className="text-[var(--muted)]" />
-            <select value={lang} onChange={(e) => setLang(e.target.value as Lang)} className="bg-transparent text-xs font-bold outline-none cursor-pointer text-[var(--text)]">
-              <option value="zh">繁中</option>
-              <option value="en">English</option>
-              <option value="ko">한국어</option>
-            </select>
-          </div>
+          {/* ★ 新增：極簡循環切換按鈕，完美適應手機版 */}
+          <button 
+            onClick={() => {
+              if (lang === "zh") setLang("en");
+              else if (lang === "en") setLang("ko");
+              else setLang("zh");
+            }} 
+            className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-[var(--panel2)] border border-[var(--border)] hover:bg-white/5 transition-colors"
+            title="Switch Language"
+          >
+            <Globe size={14} className="text-[var(--accent)]" />
+            <span className="text-xs font-bold w-9 text-center text-[var(--text)]">
+              {lang === "zh" ? "繁中" : lang === "en" ? "EN" : "한국어"}
+            </span>
+          </button>
 
           <select value={themeStyle} onChange={(e) => setThemeStyle(e.target.value as ThemeStyle)} className="bg-[var(--panel2)] border border-[var(--border)] rounded-lg text-xs px-2 py-1 outline-none hidden md:block">
             <option value="neon">Neon</option><option value="horizon">Horizon</option><option value="nebula">Nebula</option><option value="matrix">Matrix</option>

@@ -260,7 +260,7 @@ const syncToCloud = async (patch: any) => {
 };
 
 /* -----------------------------
-  CSV 工具函式 (最穩定的 encodeURIComponent 防彈版)
+  CSV 工具函式
 ----------------------------- */
 const escapeCSV = (str: string | number | undefined | null) => {
   if (str == null) return "";
@@ -366,7 +366,7 @@ const normalizeDevices = (raw: any[]): Device[] => {
 };
 
 /* -----------------------------
-  Theme Tokens
+  Theme Tokens (引入韓國 Pretendard 字型)
 ----------------------------- */
 const ThemeTokens = () => {
   const style = useStore((s) => s.themeStyle);
@@ -377,7 +377,11 @@ const ThemeTokens = () => {
     matrix: { light: ":root{--bg:#f7fbf9;--panel:#ffffff;--panel2:#edf7f2;--text:#07140f;--muted:#5a6b63;--border:#dff2e8;--accent:#10b981;--accent2:#06b6d4;--onColor:#07140f;}", dark: "html.dark{--bg:#050c09;--panel:#0a1410;--panel2:#0f1f18;--text:#eafff6;--muted:#9bb7ab;--border:#153026;--accent:#34d399;--accent2:#22d3ee;--onColor:#07140f;}" },
   };
   const css = presets[style] || presets.neon;
-  return <style>{`${css.light}\n${css.dark}`}</style>;
+  return (
+    <style>
+      {`@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");\n${css.light}\n${css.dark}`}
+    </style>
+  );
 };
 
 function useApplyTheme() {
@@ -834,15 +838,15 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
                   {rackDevs.map(d => {
                     const style = getPctStyle(d);
                     return (
-                      // ★ 精品化排版：左右 flex，加入左側內邊距 pl-1.5 md:pl-2
+                      // 左右 flex，加入左側內邊距 pl-1.5 md:pl-2
                       <div key={d.id} className="absolute left-[2px] right-[2px] rounded flex flex-row justify-between items-center pl-1.5 md:pl-2 overflow-hidden shadow-md"
                            style={{ ...style, backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.2) 100%)" }}>
                         
                         {/* 左側設備編號：font-medium (更細)、靠左對齊 text-left */}
-                        <div className="flex-1 text-[9px] xl:text-[11px] 2xl:text-[13px] text-white font-medium truncate text-left drop-shadow-md pr-1" title={d.deviceId}>{d.deviceId}</div>
+                        <div className="flex-1 text-[10px] xl:text-[12px] 2xl:text-[13px] text-white font-medium truncate text-left drop-shadow-md pr-1" title={d.deviceId}>{d.deviceId}</div>
                         
-                        {/* 右側燈號：bg-black/40 內陰影，外加 mr-1 (留白邊距)，縮小比例 scale-[0.6] */}
-                        <div className="flex shrink-0 items-center bg-black/40 rounded-md shadow-inner p-1 mr-1 transform origin-right scale-[0.55] xl:scale-[0.65]">
+                        {/* 右側燈號：bg-black/40 內陰影，外加 mr-1 (留白邊距)，縮小比例 */}
+                        <div className="flex shrink-0 items-center bg-black/40 rounded-md shadow-inner p-1 mr-1 transform origin-right scale-[0.6] xl:scale-[0.75]">
                           <LampsRow m={d.migration} />
                         </div>
                       </div>
@@ -887,12 +891,13 @@ const Dashboard = () => {
     <div className="p-6 space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-xl flex flex-col justify-center">
-          <div className="text-[var(--muted)] font-bold mb-2">{t("totalDevices", lang)}</div>
+          {/* ★ 標題放大並加粗 (text-lg md:text-xl font-extrabold) */}
+          <div className="text-lg md:text-xl font-extrabold text-[var(--muted)] mb-2">{t("totalDevices", lang)}</div>
           <div className="text-5xl font-black text-[var(--accent)]">{total}</div>
         </div>
         <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-xl flex flex-col justify-center">
           <div className="flex justify-between items-end mb-1">
-            <div className="text-[var(--muted)] font-bold">{t("pending", lang)}</div>
+            <div className="text-lg md:text-xl font-extrabold text-[var(--muted)]">{t("pending", lang)}</div>
             <div className="text-sm font-bold text-red-500 opacity-90">{calcPct(pending)}%</div>
           </div>
           <div className="text-4xl font-black text-red-500 drop-shadow-[0_0_12px_rgba(239,68,68,0.4)]">{pending}</div>
@@ -902,7 +907,7 @@ const Dashboard = () => {
         </div>
         <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-xl flex flex-col justify-center">
           <div className="flex justify-between items-end mb-1">
-            <div className="text-[var(--muted)] font-bold">{t("completed", lang)}</div>
+            <div className="text-lg md:text-xl font-extrabold text-[var(--muted)]">{t("completed", lang)}</div>
             <div className="text-sm font-bold text-green-500 opacity-90">{calcPct(completed)}%</div>
           </div>
           <div className="flex items-baseline gap-2">
@@ -1614,7 +1619,11 @@ export default function App() {
   if (!isAuthed) return <LoginPage />;
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] font-sans transition-colors duration-300">
+    // ★ 透過動態綁定 fontFamily，當切換為韓文時自動啟用 Pretendard
+    <div 
+      className="min-h-screen bg-[var(--bg)] text-[var(--text)] transition-colors duration-300"
+      style={{ fontFamily: lang === 'ko' ? '"Pretendard", sans-serif' : undefined }}
+    >
       <ThemeTokens />
 
       <header className="h-16 border-b border-[var(--border)] bg-[var(--panel)]/80 backdrop-blur-md sticky top-0 z-50 flex items-center justify-between px-4 md:px-6">
@@ -1628,7 +1637,6 @@ export default function App() {
         <div className="flex items-center gap-2 md:gap-4">
           <button onClick={toggleFs} className="p-2 hover:bg-white/5 rounded-xl" title="Full Screen">{isFs ? <Minimize size={18} /> : <Expand size={18} />}</button>
           
-          {/* ★ 新增：極簡循環切換按鈕，完美適應手機版 */}
           <button 
             onClick={() => {
               if (lang === "zh") setLang("en");

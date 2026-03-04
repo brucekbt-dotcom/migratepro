@@ -25,7 +25,8 @@ import {
   Save,
   Sparkles,
   FilePlus,
-  Network
+  Network,
+  Globe // ★ 新增地球圖示
 } from "lucide-react";
 import {
   BarChart,
@@ -66,6 +67,7 @@ type DeviceCategory = "Network" | "Storage" | "Server" | "Other";
 type PlacementMode = "before" | "after";
 
 type Role = "admin" | "vendor" | "cable";
+type Lang = "zh" | "en" | "ko"; // ★ 新增語言型別
 
 type MigrationFlags = {
   racked: boolean;
@@ -138,7 +140,58 @@ const LS = {
   auth: "migrate.auth",
   user: "migrate.user",
   accounts: "migrate.accounts",
+  lang: "migrate.lang", // ★ 儲存語言設定
 } as const;
+
+/* -----------------------------
+  ★ 多語系字典 (i18n) ★
+----------------------------- */
+const DICT = {
+  zh: {
+    navDashboard: "儀表板", navDevices: "設備管理", navBefore: "搬遷前規劃", navAfter: "搬遷後規劃", navAdmin: "管理後台",
+    totalDevices: "設備總數", pending: "待處理", completed: "搬遷完成",
+    racked: "已上架", cabled: "已接線", powered: "已開機", tested: "已測試",
+    rackStatus: "搬遷後機櫃佈局現況", categoryDist: "設備類別分佈", sysTips: "系統操作提示",
+    unplaced: "未放置設備", allPlaced: "全部已放置（已自動收合）",
+    exportCsv: "完整CSV匯出", appendCsv: "CSV批量添加", importCsv: "完整覆蓋還原", addDevice: "新增單筆設備",
+    deviceList: "設備資產清單",
+    sysTipsText1: "在「設備管理」中可新增設備、匯出 CSV，Admin 可使用 CSV 進行覆蓋或批量添加。",
+    sysTipsText2: "「搬遷前/後規劃」支援拖曳設備。向下滾動時，未放置面板會自動懸浮於頂部，方便跨機櫃拖放。",
+    sysTipsText3: "拖曳設備進入機櫃時，會顯示藍色定位點預覽擺放位置。",
+    sysTipsText4: "點擊機櫃內設備可查看詳情。Admin 與 Cable 權限可編輯 Port 備註；所有角色皆可切換搬遷後燈號。",
+    sysTipsText5: "建議定期下載「完整 CSV 備份」以確保專案歷史資料安全。"
+  },
+  en: {
+    navDashboard: "Dashboard", navDevices: "Devices", navBefore: "Before Layout", navAfter: "After Layout", navAdmin: "Admin Panel",
+    totalDevices: "Total Devices", pending: "Pending", completed: "Completed",
+    racked: "Racked", cabled: "Cabled", powered: "Powered", tested: "Tested",
+    rackStatus: "Post-Migration Rack Status", categoryDist: "Device Categories", sysTips: "System Tips",
+    unplaced: "Unplaced Devices", allPlaced: "All placed (Auto-collapsed)",
+    exportCsv: "Export Full CSV", appendCsv: "Append CSV", importCsv: "Import CSV (Overwrite)", addDevice: "Add Device",
+    deviceList: "Device Asset List",
+    sysTipsText1: "Manage devices and export CSV in 'Devices'. Admins can import/append CSV.",
+    sysTipsText2: "Drag and drop supported in Layout pages. Unplaced panel sticks to top while scrolling.",
+    sysTipsText3: "A blue highlight will preview the placement when dragging into a rack.",
+    sysTipsText4: "Click a device to view details. Admins/Cables can edit Port maps; all roles can toggle status lamps.",
+    sysTipsText5: "Regularly download 'Full CSV Backup' to secure your project data."
+  },
+  ko: {
+    navDashboard: "대시보드", navDevices: "장치 관리", navBefore: "이전 전 레이아웃", navAfter: "이전 후 레이아웃", navAdmin: "관리자 설정",
+    totalDevices: "총 장치 수", pending: "대기 중", completed: "완료됨",
+    racked: "랙 장착됨", cabled: "케이블 연결됨", powered: "전원 켜짐", tested: "테스트 완료",
+    rackStatus: "마이그레이션 후 랙 상태", categoryDist: "장치 카테고리 분포", sysTips: "시스템 팁",
+    unplaced: "배치되지 않은 장치", allPlaced: "모두 배치됨 (자동 축소)",
+    exportCsv: "전체 CSV 내보내기", appendCsv: "CSV 일괄 추가", importCsv: "전체 복원 (CSV)", addDevice: "단일 장치 추가",
+    deviceList: "장치 자산 목록",
+    sysTipsText1: "장치 관리에서 장치를 추가하고 CSV를 내보낼 수 있습니다. 관리자는 CSV를 덮어쓰거나 추가할 수 있습니다.",
+    sysTipsText2: "레이아웃 페이지에서 드래그 앤 드롭을 지원합니다. 스크롤 시 미배치 패널이 상단에 고정됩니다.",
+    sysTipsText3: "랙으로 드래그할 때 파란색 강조 표시가 배치 위치를 미리 보여줍니다.",
+    sysTipsText4: "장치를 클릭하여 세부 정보를 확인하세요. 관리자와 Cable 권한은 포트 맵을 편집할 수 있습니다.",
+    sysTipsText5: "프로젝트 기록을 안전하게 보관하기 위해 정기적으로 '전체 CSV 백업'을 다운로드하세요."
+  }
+};
+
+const t = (key: keyof typeof DICT.zh, lang: Lang) => DICT[lang]?.[key] || DICT.zh[key];
 
 /* -----------------------------
   Fixed Colors
@@ -166,6 +219,8 @@ const AFTER_RACKS: Rack[] = [
   ...["HUB 15L", "HUB 15R", "HUB 16L", "HUB 16R", "HUB 17L", "HUB 17R"].map((n) => ({ id: `AFT_${n}`, name: n, units: 42 })),
   ...["HUB 20F", "SmartHouse 20F", "不搬存放區A", "不搬存放區B", "不搬存放區C"].map((n) => ({ id: `AFT_${n}`, name: n, units: 42 })),
 ];
+
+const mockDevices: Device[] = [];
 
 const DEFAULT_ACCOUNTS: Account[] = [
   { username: "admin", password: "migration123", role: "admin" },
@@ -205,7 +260,7 @@ const syncToCloud = async (patch: any) => {
 };
 
 /* -----------------------------
-  ★ CSV 工具函式 (最穩定的 encodeURIComponent 防彈版) ★
+  CSV 工具函式
 ----------------------------- */
 const escapeCSV = (str: string | number | undefined | null) => {
   if (str == null) return "";
@@ -350,6 +405,7 @@ interface Store {
 
   theme: ThemeMode;
   themeStyle: ThemeStyle;
+  lang: Lang; // ★ 語言狀態
   page: PageKey;
   selectedDeviceId: string | null;
   ui: UiState;
@@ -370,6 +426,7 @@ interface Store {
   setPage: (p: PageKey) => void;
   toggleTheme: () => void;
   setThemeStyle: (s: ThemeStyle) => void;
+  setLang: (l: Lang) => void; // ★ 語言切換
   setSelectedDeviceId: (id: string | null) => void;
   setUi: (patch: Partial<UiState>) => void;
 
@@ -407,6 +464,7 @@ const useStore = create<Store>((set, get) => ({
 
   theme: (localStorage.getItem(LS.theme) as ThemeMode) || "dark",
   themeStyle: (localStorage.getItem(LS.themeStyle) as ThemeStyle) || "neon",
+  lang: (localStorage.getItem(LS.lang) as Lang) || "zh", // ★ 初始化語言
   page: "dashboard",
   selectedDeviceId: null,
   ui: { ...DEFAULT_UI, ...readJson<UiState>(LS.ui, DEFAULT_UI) },
@@ -461,6 +519,7 @@ const useStore = create<Store>((set, get) => ({
   setPage: (page) => set({ page }),
   toggleTheme: () => set((s) => { const next = s.theme === "dark" ? "light" : "dark"; localStorage.setItem(LS.theme, next); return { theme: next }; }),
   setThemeStyle: (themeStyle) => { localStorage.setItem(LS.themeStyle, themeStyle); set({ themeStyle }); },
+  setLang: (lang: Lang) => { localStorage.setItem(LS.lang, lang); set({ lang }); }, // ★ 寫入語言設定
   setSelectedDeviceId: (selectedDeviceId) => set({ selectedDeviceId }),
   setUi: (patch) => set((s) => { const next = { ...s.ui, ...patch }; writeJson(LS.ui, next); return { ui: next }; }),
 
@@ -724,11 +783,11 @@ function DeviceModal({ title, initial, onClose, onSave }: { title: string; initi
 }
 
 /* -----------------------------
-  ★ Dashboard 輪播機櫃 (大螢幕平分不捲動，左字右燈精緻版) ★
+  ★ Dashboard 輪播機櫃 (大螢幕平分滿版，左字右燈精緻版) ★
 ----------------------------- */
 const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: Rack[] }) => {
   const [page, setPage] = useState(0);
-  // 第一頁放 A, B 排共 12 個機櫃，一次展示完畢！
+  const lang = useStore((s) => s.lang);
   const p1 = useMemo(() => racks.filter((r) => r.id.includes("AFT_A") || r.id.includes("AFT_B")), [racks]);
   const p2 = useMemo(() => racks.filter((r) => !r.id.includes("AFT_A") && !r.id.includes("AFT_B")), [racks]);
   
@@ -739,7 +798,6 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
 
   const curRacks = page === 0 ? p1 : p2;
 
-  // 使用百分比，徹底移除黃色刻度條，高度 100%
   const getPctStyle = (d: Device) => {
     const sU = clampU(d.afterStartU ?? 1); 
     const eU = clampU(d.afterEndU ?? sU);
@@ -753,41 +811,38 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
   return (
     <div className="bg-[var(--panel)] border border-[var(--border)] p-4 md:p-6 rounded-2xl shadow-xl flex flex-col w-full lg:col-span-2">
       <div className="flex w-full justify-between items-center mb-4">
-        <h3 className="text-xl font-black flex items-center gap-2"><Network className="text-[var(--accent)]" /> 搬遷後機櫃佈局現況 ({page === 0 ? "1/2" : "2/2"})</h3>
+        <h3 className="text-xl font-black flex items-center gap-2"><Network className="text-[var(--accent)]" /> {t("rackStatus", lang)} ({page === 0 ? "1/2" : "2/2"})</h3>
         <div className="flex gap-2">
           <button onClick={() => setPage(0)} className={`w-3 h-3 rounded-full transition-all ${page === 0 ? "bg-[var(--accent)] scale-110" : "bg-[var(--border)]"}`} />
           <button onClick={() => setPage(1)} className={`w-3 h-3 rounded-full transition-all ${page === 1 ? "bg-[var(--accent)] scale-110" : "bg-[var(--border)]"}`} />
         </div>
       </div>
       
-      {/* 大螢幕 (lg 以上) 取消 min-w 限制，讓 12 櫃自動彈性壓縮平分畫面，無 Scrollbar。
-        手機版保留 min-w-[120px] 並允許橫向滑動。
-        高度拉伸至 500px~600px 確保清晰。
-      */}
       <div className="flex gap-1.5 md:gap-2 lg:gap-3 overflow-x-auto w-full flex-1 min-h-[500px] xl:min-h-[600px] pb-2 scrollbar-hide snap-x">
         {curRacks.map(rack => {
           const rackDevs = devices.filter(d => d.afterRackId === rack.id && d.afterStartU != null && d.afterEndU != null);
-          const displayName = rack.name === "不搬存放區C" ? "搬遷不上架" : rack.name;
           const isRed = rack.name.startsWith("不搬存放區");
+          // 支援多語系顯示名稱轉換
+          let displayName = rack.name;
+          if (displayName === "不搬存放區C") displayName = t("unplaced", lang);
 
           return (
             <div key={rack.id} className="flex flex-col bg-slate-900 rounded-lg overflow-hidden flex-shrink-0 snap-center border border-slate-700 min-w-[120px] lg:min-w-0 flex-1">
               <div className={`px-1 py-2 text-center text-xs xl:text-sm font-bold text-white truncate ${isRed ? "bg-red-800" : "bg-emerald-600"}`} title={displayName}>{displayName}</div>
               
-              {/* 完全移除左側 U 數區域，100% 顯示設備圖卡 */}
               <div className="relative w-full border-x-[4px] xl:border-x-[6px] border-t-[4px] xl:border-t-[6px] border-slate-600 bg-[#0b1220] shadow-inner flex-1">
                 <div className="absolute inset-0 pointer-events-none z-10">
                   {rackDevs.map(d => {
                     const style = getPctStyle(d);
                     return (
-                      <div key={d.id} className="absolute left-0 right-0 rounded flex flex-row justify-between items-center px-1 md:px-2 overflow-hidden shadow-md"
+                      <div key={d.id} className="absolute left-[2px] right-[2px] rounded flex flex-row justify-between items-center pl-1 md:pl-2 pr-0.5 overflow-hidden shadow-md"
                            style={{ ...style, backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.2) 100%)" }}>
                         
-                        {/* 左側：設備編號，強制靠左、截斷防重疊 */}
-                        <div className="text-[9px] xl:text-[12px] 2xl:text-[14px] text-white font-black truncate text-left drop-shadow-md pr-1" title={d.deviceId}>{d.deviceId}</div>
+                        {/* 左側設備編號：改為字重 medium，強制靠左 */}
+                        <div className="flex-1 text-[10px] xl:text-[12px] 2xl:text-[13px] text-white font-medium truncate text-left drop-shadow-md pr-1" title={d.deviceId}>{d.deviceId}</div>
                         
-                        {/* 右側：狀態燈號，包覆在暗色底框內，並等比例縮小 */}
-                        <div className="flex shrink-0 items-center bg-black/50 rounded shadow-inner p-0.5 xl:p-1 transform origin-right scale-[0.6] xl:scale-[0.75] 2xl:scale-90">
+                        {/* 右側燈號：包覆在暗色內陰影框，留邊 mr-1，縮小比例 */}
+                        <div className="flex shrink-0 items-center bg-black/40 rounded-md shadow-inner p-1 mr-0.5 md:mr-1 transform origin-right scale-[0.6] xl:scale-[0.75]">
                           <LampsRow m={d.migration} />
                         </div>
                       </div>
@@ -809,6 +864,7 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
 const Dashboard = () => {
   const devices = useStore((s) => s.devices);
   const afterRacks = useStore((s) => s.afterRacks);
+  const lang = useStore((s) => s.lang);
   
   const total = devices.length;
   const racked = devices.filter((d) => d.migration.racked).length;
@@ -831,12 +887,12 @@ const Dashboard = () => {
     <div className="p-6 space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-xl flex flex-col justify-center">
-          <div className="text-[var(--muted)] font-bold mb-2">設備總數</div>
+          <div className="text-[var(--muted)] font-bold mb-2">{t("totalDevices", lang)}</div>
           <div className="text-5xl font-black text-[var(--accent)]">{total}</div>
         </div>
         <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-xl flex flex-col justify-center">
           <div className="flex justify-between items-end mb-1">
-            <div className="text-[var(--muted)] font-bold">待處理</div>
+            <div className="text-[var(--muted)] font-bold">{t("pending", lang)}</div>
             <div className="text-sm font-bold text-red-500 opacity-90">{calcPct(pending)}%</div>
           </div>
           <div className="text-4xl font-black text-red-500 drop-shadow-[0_0_12px_rgba(239,68,68,0.4)]">{pending}</div>
@@ -846,7 +902,7 @@ const Dashboard = () => {
         </div>
         <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-xl flex flex-col justify-center">
           <div className="flex justify-between items-end mb-1">
-            <div className="text-[var(--muted)] font-bold">搬遷完成</div>
+            <div className="text-[var(--muted)] font-bold">{t("completed", lang)}</div>
             <div className="text-sm font-bold text-green-500 opacity-90">{calcPct(completed)}%</div>
           </div>
           <div className="flex items-baseline gap-2">
@@ -860,7 +916,12 @@ const Dashboard = () => {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[{ label: '已上架', val: racked }, { label: '已接線', val: cabled }, { label: '已開機', val: powered }, { label: '已測試', val: tested }].map((item, idx) => (
+        {[
+          { label: t("racked", lang), val: racked }, 
+          { label: t("cabled", lang), val: cabled }, 
+          { label: t("powered", lang), val: powered }, 
+          { label: t("tested", lang), val: tested }
+        ].map((item, idx) => (
           <div key={idx} className="bg-[var(--panel2)] border border-[var(--border)] p-4 rounded-xl flex flex-col">
             <div className="text-sm font-black text-[var(--muted)] mb-2">{item.label}</div>
             <div className="flex items-baseline justify-between mb-2">
@@ -878,7 +939,7 @@ const Dashboard = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl flex flex-col h-[320px]">
-          <h3 className="text-lg font-black mb-2">設備類別分佈</h3>
+          <h3 className="text-lg font-black mb-2">{t("categoryDist", lang)}</h3>
           <div className="flex-1 min-h-[150px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData}>
@@ -900,13 +961,13 @@ const Dashboard = () => {
         </div>
         
         <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl flex flex-col h-[320px] overflow-y-auto">
-          <h3 className="text-lg font-black mb-4 flex items-center gap-2"><Sparkles className="text-[var(--accent)]" /> 系統操作提示</h3>
+          <h3 className="text-lg font-black mb-4 flex items-center gap-2"><Sparkles className="text-[var(--accent)]" /> {t("sysTips", lang)}</h3>
           <ul className="text-sm text-[var(--muted)] space-y-3 flex-1">
-            <li className="flex items-start gap-2"><div className="mt-1 w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />在「設備管理」中可新增設備、匯出 CSV，Admin 可使用 CSV 進行覆蓋或批量添加。</li>
-            <li className="flex items-start gap-2"><div className="mt-1 w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />「搬遷前/後規劃」支援拖曳設備。向下滾動時，未放置面板會自動懸浮於頂部，方便跨機櫃拖放。</li>
-            <li className="flex items-start gap-2"><div className="mt-1 w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />拖曳設備進入機櫃時，會顯示藍色定位點預覽擺放位置。</li>
-            <li className="flex items-start gap-2"><div className="mt-1 w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />點擊機櫃內設備可查看詳情。Admin 與 Cable 權限可編輯 Port 備註；所有角色皆可切換搬遷後燈號。</li>
-            <li className="flex items-start gap-2"><div className="mt-1 w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />建議定期下載「完整 CSV 備份」以確保專案歷史資料安全。</li>
+            <li className="flex items-start gap-2"><div className="mt-1 w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />{t("sysTipsText1", lang)}</li>
+            <li className="flex items-start gap-2"><div className="mt-1 w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />{t("sysTipsText2", lang)}</li>
+            <li className="flex items-start gap-2"><div className="mt-1 w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />{t("sysTipsText3", lang)}</li>
+            <li className="flex items-start gap-2"><div className="mt-1 w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />{t("sysTipsText4", lang)}</li>
+            <li className="flex items-start gap-2"><div className="mt-1 w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />{t("sysTipsText5", lang)}</li>
           </ul>
         </div>
       </div>
@@ -919,6 +980,7 @@ const Dashboard = () => {
 ----------------------------- */
 function FullCSVImportModal({ onClose }: { onClose: () => void }) {
   const importFullCSV = useStore((s) => s.importFullCSV);
+  const lang = useStore((s) => s.lang);
   const [drag, setDrag] = useState(false);
   const handleFile = async (file: File) => {
     const text = await file.text(); const res = importFullCSV(text);
@@ -929,16 +991,15 @@ function FullCSVImportModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
       <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col max-h-[85dvh]">
         <div className="p-6 shrink-0 border-b border-[var(--border)]">
-          <div className="flex items-center justify-between"><div className="text-xl font-black">完整 CSV 還原（含佈局/燈號）</div><button onClick={onClose} className="p-2 rounded-xl hover:bg-white/5"><X /></button></div>
-          <div className="mt-3 text-sm text-[var(--muted)] text-red-400">⚠️ 警告：此功能會覆蓋並清空現有所有資料，請確認您上傳的是完整的備份檔。</div>
-          <div className="mt-4 flex gap-2 flex-wrap"><button onClick={downloadFullCSVTemplate} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2"><Download size={16} /> 下載完整範本</button></div>
+          <div className="flex items-center justify-between"><div className="text-xl font-black">{t("importCsv", lang)}</div><button onClick={onClose} className="p-2 rounded-xl hover:bg-white/5"><X /></button></div>
+          <div className="mt-4 flex gap-2 flex-wrap"><button onClick={downloadFullCSVTemplate} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2"><Download size={16} /> Template</button></div>
         </div>
         <div className="p-6 flex-1 overflow-y-auto">
           <label onDragEnter={() => setDrag(true)} onDragLeave={() => setDrag(false)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); setDrag(false); const file = e.dataTransfer.files?.[0]; if (file) handleFile(file); }} className={`block w-full rounded-2xl border-2 border-dashed p-8 text-center cursor-pointer transition-all ${drag ? "border-[var(--accent)] bg-white/5" : "border-[var(--border)] bg-black/10"}`}>
             <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
             <div className="flex flex-col items-center gap-3">
               <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: "linear-gradient(135deg,var(--accent),var(--accent2))" }}><Upload className="text-black" /></div>
-              <div className="font-black">拖曳「完整備份 CSV」到這裡上傳</div><div className="text-xs text-[var(--muted)]">或點擊選取檔案</div>
+              <div className="font-black">Drag CSV Here</div>
             </div>
           </label>
         </div>
@@ -949,6 +1010,7 @@ function FullCSVImportModal({ onClose }: { onClose: () => void }) {
 
 function AppendCSVImportModal({ onClose }: { onClose: () => void }) {
   const appendDevicesFromCSV = useStore((s) => s.appendDevicesFromCSV);
+  const lang = useStore((s) => s.lang);
   const [drag, setDrag] = useState(false);
   const handleFile = async (file: File) => {
     const text = await file.text(); const res = appendDevicesFromCSV(text);
@@ -960,12 +1022,11 @@ function AppendCSVImportModal({ onClose }: { onClose: () => void }) {
       <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col max-h-[85dvh]">
         <div className="p-6 shrink-0 border-b border-[var(--border)]">
           <div className="flex items-center justify-between">
-            <div className="text-xl font-black flex items-center gap-2 text-[var(--accent)]"><FilePlus /> CSV 批量添加設備</div>
+            <div className="text-xl font-black flex items-center gap-2 text-[var(--accent)]"><FilePlus /> {t("appendCsv", lang)}</div>
             <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/5"><X /></button>
           </div>
-          <div className="mt-3 text-sm text-[var(--text)]">此功能會將 CSV 內的設備 <span className="font-bold text-[var(--accent2)]">加入到現有清單的尾端</span>，不會覆蓋或刪除目前的任何資料。</div>
           <div className="mt-4 flex gap-2 flex-wrap">
-            <button onClick={downloadAppendCSVTemplate} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2"><Download size={16} /> 下載批量添加專用範本</button>
+            <button onClick={downloadAppendCSVTemplate} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2"><Download size={16} /> Template</button>
           </div>
         </div>
         <div className="p-6 flex-1 overflow-y-auto">
@@ -973,7 +1034,7 @@ function AppendCSVImportModal({ onClose }: { onClose: () => void }) {
             <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
             <div className="flex flex-col items-center gap-3">
               <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: "linear-gradient(135deg,var(--accent2),var(--accent))" }}><Plus className="text-black" size={24} /></div>
-              <div className="font-black">拖曳「添加用 CSV」到這裡上傳</div><div className="text-xs text-[var(--muted)]">或點擊選取檔案</div>
+              <div className="font-black">Drag CSV Here</div>
             </div>
           </label>
         </div>
@@ -996,6 +1057,7 @@ const DevicesPage = () => {
   const clearPlacement = useStore((s) => s.clearPlacement);
   const setSelectedDeviceId = useStore((s) => s.setSelectedDeviceId);
   const role = useStore((s) => s.role);
+  const lang = useStore((s) => s.lang);
 
   const [isAdding, setIsAdding] = useState(false);
   const [editing, setEditing] = useState<Device | null>(null);
@@ -1044,7 +1106,7 @@ const DevicesPage = () => {
 
   const Th = ({ k, children, right }: { k: SortKey; children: React.ReactNode; right?: boolean; }) => (
     <th className={`px-4 py-4 font-semibold ${right ? "text-right" : ""}`}>
-      <button onClick={() => sortToggle(k)} className="inline-flex items-center gap-2 hover:text-[var(--accent)] whitespace-nowrap" title="排序">
+      <button onClick={() => sortToggle(k)} className="inline-flex items-center gap-2 hover:text-[var(--accent)] whitespace-nowrap" title="Sort">
         {children} <span className="text-[10px] opacity-70">{sortKey === k ? (sortDir === "asc" ? "▲" : "▼") : ""}</span>
       </button>
     </th>
@@ -1054,23 +1116,21 @@ const DevicesPage = () => {
     <div className="p-6">
       <div className="flex flex-wrap gap-3 justify-between items-end mb-6">
         <div>
-          <h2 className="text-2xl font-black text-[var(--accent)]">設備資產清單</h2>
-          <p className="text-[var(--muted)] text-sm">{allowManage ? "新增/編輯/刪除設備；刪除會同步移除機櫃配置。" : "唯讀權限：可查看、可匯出 CSV、可切換狀態燈號，但不能調整清單。"}</p>
+          <h2 className="text-2xl font-black text-[var(--accent)]">{t("deviceList", lang)}</h2>
         </div>
         <div className="flex gap-2 flex-wrap">
-          {/* 回歸穩定版 CSV */}
-          <button onClick={() => canExportCSV(role) && downloadFullCSV(devices)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 font-bold"><Download size={16} /> 完整CSV匯出</button>
+          <button onClick={() => canExportCSV(role) && downloadFullCSV(devices)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-[var(--accent)] hover:text-black transition-colors flex items-center gap-2 font-bold"><Download size={16} /> {t("exportCsv", lang)}</button>
 
           {allowManage && (
             <>
               <button onClick={() => setAppendOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--accent2)] text-[var(--accent2)] hover:bg-white/5 flex items-center gap-2 font-bold">
-                <FilePlus size={16} /> CSV批量添加
+                <FilePlus size={16} /> {t("appendCsv", lang)}
               </button>
               <button onClick={() => setImportOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--border)] text-[var(--muted)] hover:bg-white/5 flex items-center gap-2 text-xs">
-                <Upload size={14} /> 完整覆蓋還原
+                <Upload size={14} /> {t("importCsv", lang)}
               </button>
               <button onClick={() => setIsAdding(true)} className="bg-[var(--accent)] text-black px-4 py-2 rounded-xl font-extrabold flex items-center gap-2 hover:opacity-90">
-                <Plus size={18} /> 新增單筆設備
+                <Plus size={18} /> {t("addDevice", lang)}
               </button>
             </>
           )}
@@ -1081,10 +1141,10 @@ const DevicesPage = () => {
         <table className="w-full text-left">
           <thead className="bg-black/20 text-[var(--muted)] text-xs uppercase tracking-wider">
             <tr>
-              <Th k="category">分類</Th><Th k="deviceId">編號</Th><Th k="name">名稱</Th><Th k="brand">廠牌</Th>
-              <Th k="model">型號</Th><Th k="ports">Ports</Th><Th k="sizeU">U</Th><Th k="before">搬遷前</Th>
-              <Th k="after">搬遷後</Th><Th k="migration">搬遷狀態</Th><Th k="complete">完成/未完成</Th>
-              <th className="px-4 py-4 font-semibold text-right whitespace-nowrap">操作</th>
+              <Th k="category">Category</Th><Th k="deviceId">ID</Th><Th k="name">Name</Th><Th k="brand">Brand</Th>
+              <Th k="model">Model</Th><Th k="ports">Ports</Th><Th k="sizeU">U</Th><Th k="before">Before</Th>
+              <Th k="after">After</Th><Th k="migration">Status</Th><Th k="complete">Done</Th>
+              <th className="px-4 py-4 font-semibold text-right whitespace-nowrap">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--border)]">
@@ -1098,7 +1158,7 @@ const DevicesPage = () => {
                 <tr key={d.id} className="hover:bg-white/[0.02] transition-colors group">
                   <td className="px-4 py-4 whitespace-nowrap"><span className="text-[10px] font-extrabold px-2 py-1 rounded-md border whitespace-nowrap" style={{ color: "var(--onColor)", borderColor: "rgba(255,255,255,0.35)", backgroundColor: catColor(d.category) }}>{d.category}</span></td>
                   <td className="px-4 py-4 whitespace-nowrap"><div className="font-black text-sm whitespace-nowrap">{d.deviceId}</div></td>
-                  <td className="px-4 py-4 whitespace-nowrap"><button onClick={() => useStore.getState().setSelectedDeviceId(d.id)} className="text-sm text-[var(--muted)] hover:text-[var(--accent)] font-semibold whitespace-nowrap" title="查看詳細">{d.name}</button></td>
+                  <td className="px-4 py-4 whitespace-nowrap"><button onClick={() => useStore.getState().setSelectedDeviceId(d.id)} className="text-sm text-[var(--muted)] hover:text-[var(--accent)] font-semibold whitespace-nowrap" title="Detail">{d.name}</button></td>
                   <td className="px-4 py-4 text-xs text-[var(--text)] whitespace-nowrap">{d.brand}</td>
                   <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{d.model}</td>
                   <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{d.ports}</td>
@@ -1106,28 +1166,28 @@ const DevicesPage = () => {
                   <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{before}</td>
                   <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{after}</td>
                   <td className="px-4 py-4 whitespace-nowrap"><LampsRow m={d.migration} /></td>
-                  <td className="px-4 py-4 whitespace-nowrap"><span className="text-xs font-extrabold px-2 py-1 rounded-lg border" style={{ borderColor: done ? "rgba(0,255,0,0.45)" : "rgba(255,0,0,0.45)", color: done ? "rgb(0,255,0)" : "rgb(255,0,0)", background: done ? "rgba(0,255,0,0.06)" : "rgba(255,0,0,0.06)" }}>{done ? "完成" : "未完成"}</span></td>
+                  <td className="px-4 py-4 whitespace-nowrap"><span className="text-xs font-extrabold px-2 py-1 rounded-lg border" style={{ borderColor: done ? "rgba(0,255,0,0.45)" : "rgba(255,0,0,0.45)", color: done ? "rgb(0,255,0)" : "rgb(255,0,0)", background: done ? "rgba(0,255,0,0.06)" : "rgba(255,0,0,0.06)" }}>{done ? "V" : "X"}</span></td>
                   <td className="px-4 py-4 text-right whitespace-nowrap">
                     {allowManage ? (
                       <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => setEditing(d)} className="p-2 hover:bg-white/10 rounded-lg text-[var(--accent)]" title="編輯"><Edit3 size={16} /></button>
-                        <button onClick={() => { clearPlacement("before", d.id); clearPlacement("after", d.id); }} className="px-3 py-2 rounded-lg border border-[var(--border)] text-xs hover:bg-white/5 whitespace-nowrap" title="清除位置">清除</button>
-                        <button onClick={() => { if (confirm(`確定刪除 ${d.deviceId} - ${d.name}？`)) deleteDeviceById(d.id); }} className="p-2 hover:bg-white/10 rounded-lg text-red-400" title="刪除"><Trash2 size={16} /></button>
+                        <button onClick={() => setEditing(d)} className="p-2 hover:bg-white/10 rounded-lg text-[var(--accent)]"><Edit3 size={16} /></button>
+                        <button onClick={() => { clearPlacement("before", d.id); clearPlacement("after", d.id); }} className="px-3 py-2 rounded-lg border border-[var(--border)] text-xs hover:bg-white/5 whitespace-nowrap">Clear</button>
+                        <button onClick={() => { if (confirm(`Delete ${d.deviceId}?`)) deleteDeviceById(d.id); }} className="p-2 hover:bg-white/10 rounded-lg text-red-400"><Trash2 size={16} /></button>
                       </div>
-                    ) : (<div className="text-xs text-[var(--muted)]">只讀</div>)}
+                    ) : (<div className="text-xs text-[var(--muted)]">-</div>)}
                   </td>
                 </tr>
               );
             })}
-            {sorted.length === 0 && (<tr><td colSpan={12} className="px-6 py-10 text-center text-[var(--muted)]">目前沒有設備</td></tr>)}
+            {sorted.length === 0 && (<tr><td colSpan={12} className="px-6 py-10 text-center text-[var(--muted)]">No Devices</td></tr>)}
           </tbody>
         </table>
       </div>
 
       {importOpen && <FullCSVImportModal onClose={() => setImportOpen(false)} />}
       {appendOpen && <AppendCSVImportModal onClose={() => setAppendOpen(false)} />}
-      {isAdding && (<DeviceModal title="新增設備" initial={{ category: "Other", deviceId: "", name: "", brand: "", model: "", ports: 8, sizeU: 1, ip: "", serial: "", portMap: "" }} onClose={() => setIsAdding(false)} onSave={(d) => { addDevice(d); setIsAdding(false); }} />)}
-      {editing && (<DeviceModal title="編輯設備" initial={{ category: editing.category, deviceId: editing.deviceId, name: editing.name, brand: editing.brand, model: editing.model, ports: editing.ports, sizeU: editing.sizeU, ip: editing.ip ?? "", serial: editing.serial ?? "", portMap: editing.portMap ?? "" }} onClose={() => setEditing(null)} onSave={(d) => { updateDevice(editing.id, d); setEditing(null); }} />)}
+      {isAdding && (<DeviceModal title={t("addDevice", lang)} initial={{ category: "Other", deviceId: "", name: "", brand: "", model: "", ports: 8, sizeU: 1, ip: "", serial: "", portMap: "" }} onClose={() => setIsAdding(false)} onSave={(d) => { addDevice(d); setIsAdding(false); }} />)}
+      {editing && (<DeviceModal title="Edit" initial={{ category: editing.category, deviceId: editing.deviceId, name: editing.name, brand: editing.brand, model: editing.model, ports: editing.ports, sizeU: editing.sizeU, ip: editing.ip ?? "", serial: editing.serial ?? "", portMap: editing.portMap ?? "" }} onClose={() => setEditing(null)} onSave={(d) => { updateDevice(editing.id, d); setEditing(null); }} />)}
     </div>
   );
 };
@@ -1144,15 +1204,15 @@ function HoverCard({ x, y, d, beforePos, afterPos }: { x: number; y: number; d: 
       >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="text-[10px] text-gray-300 font-medium">設備資訊</div>
+            <div className="text-[10px] text-gray-300 font-medium">Info</div>
             <div className="font-black text-sm truncate text-white">{d.deviceId} · {d.name}</div>
             <div className="text-[11px] text-gray-300 truncate mt-0.5">{d.brand} / {d.model} · {d.sizeU}U · {d.ports} ports</div>
           </div>
           <div className="pt-1"><LampsRow m={d.migration} /></div>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-          <div className="rounded-xl border border-white/10 bg-white/10 p-2"><div className="text-[10px] text-gray-400">搬遷前</div><div className="font-bold truncate text-white">{beforePos}</div></div>
-          <div className="rounded-xl border border-white/10 bg-white/10 p-2"><div className="text-[10px] text-gray-400">搬遷後</div><div className="font-bold truncate text-white">{afterPos}</div></div>
+          <div className="rounded-xl border border-white/10 bg-white/10 p-2"><div className="text-[10px] text-gray-400">Before</div><div className="font-bold truncate text-white">{beforePos}</div></div>
+          <div className="rounded-xl border border-white/10 bg-white/10 p-2"><div className="text-[10px] text-gray-400">After</div><div className="font-bold truncate text-white">{afterPos}</div></div>
         </div>
         <div className="mt-3 text-[11px] text-gray-400 truncate">IP：{d.ip || "-"}　SN：{d.serial || "-"}</div>
       </div>
@@ -1162,6 +1222,7 @@ function HoverCard({ x, y, d, beforePos, afterPos }: { x: number; y: number; d: 
 
 function UnplacedPanel({ mode, unplaced, collapsed, setCollapsed, allowLayout }: { mode: PlacementMode; unplaced: Device[]; collapsed: boolean; setCollapsed: (v: boolean) => void; allowLayout: boolean; }) {
   const setDraggingDevice = useStore(s => s.setDraggingDevice);
+  const lang = useStore(s => s.lang);
   useEffect(() => { if (unplaced.length === 0 && !collapsed) setCollapsed(true); }, [unplaced.length]);
 
   const isSticky = unplaced.length > 0 && !collapsed;
@@ -1170,16 +1231,16 @@ function UnplacedPanel({ mode, unplaced, collapsed, setCollapsed, allowLayout }:
     <div className={`border border-[var(--border)] rounded-2xl shadow-2xl overflow-hidden mb-6 transition-all duration-300 ${isSticky ? "sticky top-[80px] z-[40] bg-[var(--panel)]/95 backdrop-blur-xl" : "bg-[var(--panel)]"}`}>
       <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="font-black">未放置設備</div>
-          <div className="text-xs text-[var(--muted)]">{unplaced.length === 0 ? "全部已放置（已自動收合）" : `${unplaced.length} 台`}</div>
+          <div className="font-black">{t("unplaced", lang)}</div>
+          <div className="text-xs text-[var(--muted)]">{unplaced.length === 0 ? t("allPlaced", lang) : `${unplaced.length}`}</div>
         </div>
-        <button onClick={() => setCollapsed(!collapsed)} className="px-3 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-sm" title="收合/展開">
-          {collapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />} {collapsed ? "展開" : "收合"}
+        <button onClick={() => setCollapsed(!collapsed)} className="px-3 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-sm">
+          {collapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
         </button>
       </div>
       {!collapsed && (
         <div className="p-4">
-          {unplaced.length === 0 ? (<div className="text-sm text-[var(--muted)]">✅ 沒有未放置設備</div>) : (
+          {unplaced.length > 0 && (
             <div className="flex gap-3 overflow-x-auto pb-2">
               {unplaced.map((d) => (
                 <div
@@ -1188,7 +1249,6 @@ function UnplacedPanel({ mode, unplaced, collapsed, setCollapsed, allowLayout }:
                   onDragEnd={() => setDraggingDevice(null)}
                   className={`min-w-[240px] p-3 rounded-xl shadow-md border border-white/10 transition-all ${allowLayout ? "cursor-grab active:cursor-grabbing hover:brightness-110 hover:scale-[1.02]" : "cursor-not-allowed opacity-90"}`}
                   style={{ backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.15) 100%)", color: "white" }}
-                  title={allowLayout ? "拖曳到機櫃" : "權限不足，不允許拖放"}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -1202,7 +1262,6 @@ function UnplacedPanel({ mode, unplaced, collapsed, setCollapsed, allowLayout }:
               ))}
             </div>
           )}
-          <div className="mt-2 text-xs text-[var(--muted)]">{allowLayout ? `提示：把設備拖到機櫃（${mode === "before" ? "搬遷前" : "搬遷後"}）` : "唯讀：只能查看/切換搬遷後燈號，不能拖放"}</div>
         </div>
       )}
     </div>
@@ -1217,12 +1276,12 @@ function AddAndPlaceModal({ mode, rackId, u, onClose }: { mode: PlacementMode; r
   const initial: DeviceDraft = { category: "Other", deviceId: "", name: "", brand: "", model: "", ports: 8, sizeU: 1, ip: "", serial: "", portMap: "" };
   const displayName = rackId === "AFT_不搬存放區C" ? "搬遷不上架存放區" : rackId.replace(/^(BEF_|AFT_)/, "");
   return (
-    <DeviceModal title={`新增設備並放置：${displayName} / ${u}U`} initial={initial} onClose={onClose} onSave={(d) => { const id = addDevice(d); const res = place(mode, id, rackId, u); if (!res.ok) alert(res.message); onClose(); }} />
+    <DeviceModal title={`Add & Place：${displayName} / ${u}U`} initial={initial} onClose={onClose} onSave={(d) => { const id = addDevice(d); const res = place(mode, id, rackId, u); if (!res.ok) alert(res.message); onClose(); }} />
   );
 }
 
 /* -----------------------------
-  ★ Rack Planner (拔除 PDF，回歸輕量乾淨) ★
+  Rack Planner 
 ----------------------------- */
 const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
   const racks = useStore((s) => (mode === "before" ? s.beforeRacks : s.afterRacks));
@@ -1234,6 +1293,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
   const setUi = useStore((s) => s.setUi);
   const repairRackIds = useStore((s) => s.repairRackIds);
   const role = useStore((s) => s.role);
+  const lang = useStore((s) => s.lang);
   const draggingDevice = useStore((s) => s.draggingDevice);
   const setDraggingDevice = useStore((s) => s.setDraggingDevice);
 
@@ -1314,14 +1374,13 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
     if (role === "admin") setAddPlace({ rackId, u });
   };
 
-  const title = mode === "before" ? "搬遷前 機櫃佈局" : "搬遷後 機櫃佈局";
+  const title = mode === "before" ? t("navBefore", lang) : t("navAfter", lang);
 
   return (
     <div className="p-6 relative">
       <div className="flex flex-wrap items-start md:items-center justify-between gap-4 mb-6">
         <div>
           <h2 className="text-2xl font-black flex items-center gap-3 text-[var(--text)]"><ArrowRightLeft className="text-[var(--accent)]" /> {title}</h2>
-          <p className="text-[var(--muted)] text-sm font-medium mt-1">{allowLayout ? "拖拉設備到機櫃；拖拉時會高亮顯示定位點。滾動畫面時未放置區會置頂" : "唯讀權限：只能查看（不可拖放/不可調整機櫃佈局）"}</p>
         </div>
         <div className="flex gap-3 bg-[var(--panel)] p-2.5 rounded-xl border border-[var(--border)] shadow-sm text-xs font-bold shrink-0 flex-wrap">
           <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Network }}></div> Network</div>
@@ -1337,7 +1396,8 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
         {rackRows.map((row, idx) => (
           <div key={idx} className="flex gap-6 overflow-x-auto pb-4 items-start snap-x">
             {row.map((rack) => {
-              const displayName = rack.name === "不搬存放區C" ? "搬遷不上架存放區" : rack.name;
+              let displayName = rack.name;
+              if (displayName === "不搬存放區C") displayName = t("unplaced", lang);
               const isRed = rack.name.startsWith("不搬存放區") || rack.name === "新購設備存放區";
 
               return (
@@ -1422,12 +1482,11 @@ const AdminPage = () => {
   const accounts = useStore((s) => s.accounts);
   const upsertAccount = useStore((s) => s.upsertAccount);
   const deleteAccount = useStore((s) => s.deleteAccount);
+  const lang = useStore((s) => s.lang);
   const [editing, setEditing] = useState<Account | null>(null);
   const [creating, setCreating] = useState(false);
 
-  if (role !== "admin") {
-    return (<div className="p-6"><div className="bg-[var(--panel)] border border-[var(--border)] rounded-2xl p-6"><div className="text-lg font-black text-[var(--accent)]">權限不足</div><div className="text-sm text-[var(--muted)] mt-2">此頁僅提供 Admin 使用。</div></div></div>);
-  }
+  if (role !== "admin") return null;
 
   const Modal = ({ title, initial, onClose }: { title: string; initial: Account; onClose: () => void; }) => {
     const [a, setA] = useState<Account>(initial);
@@ -1440,17 +1499,16 @@ const AdminPage = () => {
             <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/5"><X /></button>
           </div>
           <div className="p-4 md:p-6 flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><label className="text-xs text-[var(--muted)]">帳號</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)]" value={a.username} onChange={(e) => setA((p) => ({ ...p, username: e.target.value }))} disabled={!creating} />{!creating && (<div className="text-[11px] text-[var(--muted)] mt-1">編輯時不可更改帳號</div>)}</div>
-            <div><label className="text-xs text-[var(--muted)]">權限</label>
+            <div><label className="text-xs text-[var(--muted)]">Account</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)]" value={a.username} onChange={(e) => setA((p) => ({ ...p, username: e.target.value }))} disabled={!creating} /></div>
+            <div><label className="text-xs text-[var(--muted)]">Role</label>
               <select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none" value={a.role} onChange={(e) => setA((p) => ({ ...p, role: e.target.value as Role }))} disabled={isAdminAccount}>
                 <option value="admin">Admin</option>
                 <option value="cable">Cable</option>
                 <option value="vendor">Vendor</option>
-              </select>
-            {isAdminAccount && (<div className="text-[11px] text-[var(--muted)] mt-1">admin 必須保持 Admin</div>)}</div>
-            <div className="md:col-span-2"><label className="text-xs text-[var(--muted)]">密碼</label><input type="password" className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)]" value={a.password} onChange={(e) => setA((p) => ({ ...p, password: e.target.value }))} /></div>
+              </select></div>
+            <div className="md:col-span-2"><label className="text-xs text-[var(--muted)]">Password</label><input type="password" className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)]" value={a.password} onChange={(e) => setA((p) => ({ ...p, password: e.target.value }))} /></div>
           </div>
-          <div className="p-4 md:p-6 border-t border-[var(--border)] shrink-0 flex justify-end gap-3"><button onClick={onClose} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5">取消</button><button onClick={() => { const res = upsertAccount(a); if (!res.ok) return alert(res.message); onClose(); }} className="px-4 py-2 rounded-xl bg-[var(--accent)] text-black font-extrabold hover:opacity-90 flex items-center gap-2"><Save size={16} /> 儲存</button></div>
+          <div className="p-4 md:p-6 border-t border-[var(--border)] shrink-0 flex justify-end gap-3"><button onClick={onClose} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5">Cancel</button><button onClick={() => { const res = upsertAccount(a); if (!res.ok) return alert(res.message); onClose(); }} className="px-4 py-2 rounded-xl bg-[var(--accent)] text-black font-extrabold hover:opacity-90 flex items-center gap-2"><Save size={16} /> Save</button></div>
         </motion.div>
       </div>
     );
@@ -1460,26 +1518,25 @@ const AdminPage = () => {
     <div className="p-6 space-y-6">
       <div className="bg-[var(--panel)] border border-[var(--border)] rounded-2xl p-6">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div><div className="flex items-center gap-2"><Shield className="text-[var(--accent)]" /><div className="text-lg font-black">管理後台：帳號管理</div></div><div className="text-sm text-[var(--muted)] mt-2">目前登入：<span className="text-[var(--text)] font-bold">{user}</span>（Admin）</div></div>
-          <button onClick={() => { setCreating(true); setEditing({ username: "", password: "", role: "vendor" }); }} className="bg-[var(--accent)] text-black px-4 py-2 rounded-xl font-extrabold flex items-center gap-2 hover:opacity-90"><Plus size={18} /> 新增帳號</button>
+          <div><div className="flex items-center gap-2"><Shield className="text-[var(--accent)]" /><div className="text-lg font-black">{t("navAdmin", lang)}</div></div></div>
+          <button onClick={() => { setCreating(true); setEditing({ username: "", password: "", role: "vendor" }); }} className="bg-[var(--accent)] text-black px-4 py-2 rounded-xl font-extrabold flex items-center gap-2 hover:opacity-90"><Plus size={18} /> Add</button>
         </div>
         <div className="mt-5 bg-[var(--panel2)] border border-[var(--border)] rounded-2xl overflow-hidden">
           <table className="w-full text-left">
-            <thead className="bg-black/20 text-[var(--muted)] text-xs uppercase tracking-wider"><tr><th className="px-4 py-3 font-semibold">帳號</th><th className="px-4 py-3 font-semibold">權限</th><th className="px-4 py-3 font-semibold">操作</th></tr></thead>
+            <thead className="bg-black/20 text-[var(--muted)] text-xs uppercase tracking-wider"><tr><th className="px-4 py-3 font-semibold">Account</th><th className="px-4 py-3 font-semibold">Role</th><th className="px-4 py-3 font-semibold">Action</th></tr></thead>
             <tbody className="divide-y divide-[var(--border)]">
               {accounts.slice().sort((a, b) => a.username === "admin" ? -1 : b.username === "admin" ? 1 : a.username.localeCompare(b.username)).map((a) => (
                 <tr key={a.username} className="hover:bg-white/[0.03]">
-                  <td className="px-4 py-3"><div className="font-black">{a.username}</div>{a.username === "admin" && <div className="text-xs text-[var(--muted)]">admin 不能刪除</div>}</td>
+                  <td className="px-4 py-3"><div className="font-black">{a.username}</div></td>
                   <td className="px-4 py-3"><span className="text-xs px-2 py-1 rounded-lg border border-[var(--border)] text-[var(--muted)] capitalize">{a.role}</span></td>
-                  <td className="px-4 py-3"><div className="flex gap-2 flex-wrap"><button onClick={() => { setCreating(false); setEditing(a); }} className="px-3 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-sm"><Edit3 size={16} /> 修改</button><button onClick={() => { const res = deleteAccount(a.username); if (!res.ok) return alert(res.message); }} disabled={a.username === "admin"} className={`px-3 py-2 rounded-xl border border-[var(--border)] flex items-center gap-2 text-sm ${a.username === "admin" ? "opacity-50 cursor-not-allowed" : "hover:bg-white/5 text-red-300"}`}><Trash2 size={16} /> 刪除</button></div></td>
+                  <td className="px-4 py-3"><div className="flex gap-2 flex-wrap"><button onClick={() => { setCreating(false); setEditing(a); }} className="px-3 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-sm"><Edit3 size={16} /> Edit</button><button onClick={() => { const res = deleteAccount(a.username); if (!res.ok) return alert(res.message); }} disabled={a.username === "admin"} className={`px-3 py-2 rounded-xl border border-[var(--border)] flex items-center gap-2 text-sm ${a.username === "admin" ? "opacity-50 cursor-not-allowed" : "hover:bg-white/5 text-red-300"}`}><Trash2 size={16} /> Del</button></div></td>
                 </tr>
               ))}
-              {accounts.length === 0 && (<tr><td colSpan={3} className="px-4 py-8 text-center text-[var(--muted)]">沒有帳號資料</td></tr>)}
             </tbody>
           </table>
         </div>
       </div>
-      {editing && <Modal title={creating ? "新增帳號" : "修改帳號"} initial={editing} onClose={() => { setEditing(null); setCreating(false); }} />}
+      {editing && <Modal title={creating ? "Add" : "Edit"} initial={editing} onClose={() => { setEditing(null); setCreating(false); }} />}
     </div>
   );
 };
@@ -1535,6 +1592,8 @@ export default function App() {
   const toggleTheme = useStore((s) => s.toggleTheme);
   const themeStyle = useStore((s) => s.themeStyle);
   const setThemeStyle = useStore((s) => s.setThemeStyle);
+  const lang = useStore((s) => s.lang);
+  const setLang = useStore((s) => s.setLang);
   const ui = useStore((s) => s.ui);
   const setUi = useStore((s) => s.setUi);
   const selectedDeviceId = useStore((s) => s.selectedDeviceId);
@@ -1543,14 +1602,14 @@ export default function App() {
 
   const navItems = useMemo(() => {
     const base = [
-      { id: "dashboard" as const, label: "儀表板", icon: <LayoutDashboard size={20} /> },
-      { id: "devices" as const, label: "設備管理", icon: <Server size={20} /> },
-      { id: "before" as const, label: "搬遷前規劃", icon: <ArrowLeftRight size={20} /> },
-      { id: "after" as const, label: "搬遷後規劃", icon: <ArrowRightLeft size={20} /> },
+      { id: "dashboard" as const, label: t("navDashboard", lang), icon: <LayoutDashboard size={20} /> },
+      { id: "devices" as const, label: t("navDevices", lang), icon: <Server size={20} /> },
+      { id: "before" as const, label: t("navBefore", lang), icon: <ArrowLeftRight size={20} /> },
+      { id: "after" as const, label: t("navAfter", lang), icon: <ArrowRightLeft size={20} /> },
     ];
-    if (role === "admin") base.push({ id: "admin" as const, label: "管理後台", icon: <Shield size={20} /> });
+    if (role === "admin") base.push({ id: "admin" as const, label: t("navAdmin", lang), icon: <Shield size={20} /> });
     return base;
-  }, [role]);
+  }, [role, lang]);
 
   if (!isAuthed) return <LoginPage />;
 
@@ -1564,28 +1623,39 @@ export default function App() {
             <Server size={18} />
           </div>
           <h1 className="text-lg md:text-xl font-black tracking-tighter uppercase italic">Migrate<span className="text-[var(--accent)]">Pro</span></h1>
-          <div className="hidden md:flex items-center gap-2 text-xs text-[var(--muted)]"><Sparkles size={14} className="text-[var(--accent)]" />機房搬遷專案管理</div>
         </div>
 
         <div className="flex items-center gap-2 md:gap-4">
-          <button onClick={toggleFs} className="p-2 hover:bg-white/5 rounded-xl" title={isFs ? "離開全螢幕" : "全螢幕"}>{isFs ? <Minimize size={18} /> : <Expand size={18} />}</button>
-          <select value={themeStyle} onChange={(e) => setThemeStyle(e.target.value as ThemeStyle)} className="bg-[var(--panel2)] border border-[var(--border)] rounded-lg text-xs px-2 py-1 outline-none hidden sm:block">
+          <button onClick={toggleFs} className="p-2 hover:bg-white/5 rounded-xl" title="Full Screen">{isFs ? <Minimize size={18} /> : <Expand size={18} />}</button>
+          
+          {/* ★ 新增：多語系切換器 */}
+          <div className="hidden sm:flex items-center gap-1.5 bg-[var(--panel2)] border border-[var(--border)] rounded-lg px-2 py-1">
+            <Globe size={14} className="text-[var(--muted)]" />
+            <select value={lang} onChange={(e) => setLang(e.target.value as Lang)} className="bg-transparent text-xs font-bold outline-none cursor-pointer text-[var(--text)]">
+              <option value="zh">繁中</option>
+              <option value="en">English</option>
+              <option value="ko">한국어</option>
+            </select>
+          </div>
+
+          <select value={themeStyle} onChange={(e) => setThemeStyle(e.target.value as ThemeStyle)} className="bg-[var(--panel2)] border border-[var(--border)] rounded-lg text-xs px-2 py-1 outline-none hidden md:block">
             <option value="neon">Neon</option><option value="horizon">Horizon</option><option value="nebula">Nebula</option><option value="matrix">Matrix</option>
           </select>
-          <button onClick={toggleTheme} className="p-2 hover:bg-white/5 rounded-xl" title="切換深/淺色">{theme === "dark" ? "🌙" : "☀️"}</button>
+          <button onClick={toggleTheme} className="p-2 hover:bg-white/5 rounded-xl" title="Dark/Light Mode">{theme === "dark" ? "🌙" : "☀️"}</button>
+          
           <div className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl border border-[var(--border)] bg-black/10">
             <User size={16} className="text-[var(--muted)]" />
             <span className="text-sm font-bold">{userName || "-"}</span>
             <span className="text-xs px-2 py-0.5 rounded-lg border border-[var(--border)] text-[var(--muted)] capitalize">{role}</span>
-            <button onClick={logout} className="ml-1 p-1 rounded-lg hover:bg-white/10" title="登出"><LogOut size={16} className="text-[var(--muted)]" /></button>
+            <button onClick={logout} className="ml-1 p-1 rounded-lg hover:bg-white/10" title="Logout"><LogOut size={16} className="text-[var(--muted)]" /></button>
           </div>
-          <button onClick={logout} className="md:hidden p-2 hover:bg-white/5 rounded-xl" title="登出"><LogOut size={18} /></button>
+          <button onClick={logout} className="md:hidden p-2 hover:bg-white/5 rounded-xl" title="Logout"><LogOut size={18} /></button>
         </div>
       </header>
 
       <div className="flex">
         <nav className={`border-r border-[var(--border)] h-[calc(100vh-64px)] sticky top-16 p-4 bg-[var(--panel)] hidden lg:block transition-all ${ui.sideCollapsed ? "w-20" : "w-64"}`}>
-          <div className="flex justify-end mb-3"><button onClick={() => setUi({ sideCollapsed: !ui.sideCollapsed })} className="p-2 rounded-xl hover:bg-white/5" title={ui.sideCollapsed ? "展開選單" : "收合選單"}>{ui.sideCollapsed ? <ChevronsRight /> : <ChevronsLeft />}</button></div>
+          <div className="flex justify-end mb-3"><button onClick={() => setUi({ sideCollapsed: !ui.sideCollapsed })} className="p-2 rounded-xl hover:bg-white/5" title={ui.sideCollapsed ? "Expand" : "Collapse"}>{ui.sideCollapsed ? <ChevronsRight /> : <ChevronsLeft />}</button></div>
           <div className="space-y-2">
             {navItems.map((item) => (
               <button key={item.id} onClick={() => setPage(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${page === item.id ? "bg-[var(--panel2)] text-[var(--accent)] border border-[var(--border)] shadow-[0_0_20px_rgba(34,211,238,0.1)] font-black" : "text-[var(--muted)] hover:bg-white/[0.03]"}`} title={item.label}>{item.icon}{!ui.sideCollapsed && item.label}</button>

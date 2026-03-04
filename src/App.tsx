@@ -27,9 +27,9 @@ import {
   Save,
   Sparkles,
   FilePlus,
-  FileText,
   Network,
-  Camera
+  Camera,
+  FileText
 } from "lucide-react";
 import {
   BarChart,
@@ -173,9 +173,6 @@ const AFTER_RACKS: Rack[] = [
   ...["HUB 20F", "SmartHouse 20F", "不搬存放區A", "不搬存放區B", "不搬存放區C"].map((n) => ({ id: `AFT_${n}`, name: n, units: 42 })),
 ];
 
-/* -----------------------------
-  Mock Devices
------------------------------ */
 const mockDevices: Device[] = [
   {
     id: "dev-1",
@@ -253,7 +250,7 @@ const syncToCloud = async (patch: any) => {
 };
 
 /* -----------------------------
-  CSV 工具函式
+  ★ CSV 工具函式 (穩健安全下載版) ★
 ----------------------------- */
 const escapeCSV = (str: string | number | undefined | null) => {
   if (str == null) return "";
@@ -262,16 +259,26 @@ const escapeCSV = (str: string | number | undefined | null) => {
 
 const CSV_HEADER = "id,category,deviceId,name,brand,model,ports,sizeU,ip,serial,portMap,beforeRackId,beforeStartU,beforeEndU,afterRackId,afterStartU,afterEndU,m_racked,m_cabled,m_powered,m_tested";
 
-const downloadCSVWithBlob = (csvString: string, filename: string) => {
-  const blob = new Blob(["\uFEFF" + csvString], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.setAttribute("download", filename);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+// 加入 Try Catch 與 setTimeout 防止瀏覽器攔截
+const safeDownloadBlob = (content: string, filename: string) => {
+  try {
+    const blob = new Blob(["\uFEFF" + content], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.style.display = "none";
+    link.href = url;
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    
+    // 延遲清理，確保手機瀏覽器有時間喚起下載對話框
+    setTimeout(() => {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }, 200);
+  } catch (e) {
+    alert("下載失敗，請確認瀏覽器是否阻擋了下載彈出視窗！\n錯誤訊息：" + e);
+  }
 };
 
 const downloadFullCSV = (devices: Device[]) => {
@@ -283,18 +290,18 @@ const downloadFullCSV = (devices: Device[]) => {
     d.migration.racked ? "1" : "0", d.migration.cabled ? "1" : "0", d.migration.powered ? "1" : "0", d.migration.tested ? "1" : "0"
   ].map(escapeCSV).join(','));
   const csvContent = [CSV_HEADER, ...rows].join("\n");
-  downloadCSVWithBlob(csvContent, `MigratePro_完整備份_${new Date().toISOString().slice(0,10)}.csv`);
+  safeDownloadBlob(csvContent, `MigratePro_完整備份_${new Date().toISOString().slice(0,10)}.csv`);
 };
 
 const downloadFullCSVTemplate = () => {
-  downloadCSVWithBlob(CSV_HEADER + "\n", "MigratePro_完整還原範本.csv");
+  safeDownloadBlob(CSV_HEADER + "\n", "MigratePro_完整還原範本.csv");
 };
 
 const APPEND_CSV_HEADER = "category,deviceId,name,brand,model,ports,sizeU,ip,serial,portMap";
 const APPEND_CSV_SAMPLE = "Server,SRV-001,範例伺服器,Dell,R740,4,2,192.168.1.100,SN12345,Eth1 -> Switch";
 
 const downloadAppendCSVTemplate = () => {
-  downloadCSVWithBlob(APPEND_CSV_HEADER + "\n" + APPEND_CSV_SAMPLE + "\n", "MigratePro_批量添加範本.csv");
+  safeDownloadBlob(APPEND_CSV_HEADER + "\n" + APPEND_CSV_SAMPLE + "\n", "MigratePro_批量添加範本.csv");
 };
 
 const parseCSV = (str: string): string[][] => {
@@ -726,7 +733,6 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
 function DeviceModal({ title, initial, onClose, onSave }: { title: string; initial: DeviceDraft; onClose: () => void; onSave: (d: DeviceDraft) => void; }) {
   const [d, setD] = useState<DeviceDraft>(initial);
   const input = (k: keyof DeviceDraft) => (e: any) => setD((p) => ({ ...p, [k]: e.target.value } as any));
-  const portLines = (d.portMap ?? "").split(/\r?\n/);
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -737,7 +743,7 @@ function DeviceModal({ title, initial, onClose, onSave }: { title: string; initi
         </div>
         
         <div className="p-4 md:p-6 flex-1 overflow-y-auto">
-          <form id="device-form" className="grid grid-cols-1 md:grid-cols-2 gap-4" onSubmit={(e) => { e.preventDefault(); if (!d.deviceId.trim() || !d.name.trim()) return alert("請填寫設備編號與設備名稱"); const lines = (d.portMap ?? "").split(/\r?\n/); if (lines.length > 48) return alert("Port對接備註最多 48 行"); onSave({ ...d, ports: Number(d.ports) || 0, sizeU: Math.max(1, Math.min(42, Number(d.sizeU) || 1)), portMap: (d.portMap ?? "").trimEnd() }); }}>
+          <form id="device-form" className="grid grid-cols-1 md:grid-cols-2 gap-4" onSubmit={(e) => { e.preventDefault(); if (!d.deviceId.trim() || !d.name.trim()) return alert("請填寫設備編號與設備名稱"); onSave({ ...d, ports: Number(d.ports) || 0, sizeU: Math.max(1, Math.min(42, Number(d.sizeU) || 1)), portMap: (d.portMap ?? "").trimEnd() }); }}>
             <div><label className="text-xs text-[var(--muted)]">類別</label><select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none" value={d.category} onChange={input("category") as any}>{(["Network", "Storage", "Server", "Other"] as DeviceCategory[]).map((x) => (<option key={x} value={x}>{x}</option>))}</select></div>
             <div><label className="text-xs text-[var(--muted)]">設備編號</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)]" value={d.deviceId} onChange={input("deviceId")} placeholder="EX: SW-01" /></div>
             <div><label className="text-xs text-[var(--muted)]">設備名稱</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)]" value={d.name} onChange={input("name")} /></div>
@@ -748,8 +754,8 @@ function DeviceModal({ title, initial, onClose, onSave }: { title: string; initi
             <div><label className="text-xs text-[var(--muted)]">設備IP</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none" value={d.ip ?? ""} onChange={input("ip")} placeholder="10.0.0.10" /></div>
             <div><label className="text-xs text-[var(--muted)]">序號</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none" value={d.serial ?? ""} onChange={input("serial")} /></div>
             <div className="md:col-span-2">
-              <div className="flex items-end justify-between gap-3"><label className="text-xs text-[var(--muted)]">Port對接備註（格式建議：櫃/U/Port）</label><div className="text-[11px] text-[var(--muted)]">行數：{portLines.filter((x) => x.trim().length > 0).length}/48</div></div>
-              <textarea className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none min-h-[140px] whitespace-pre" value={d.portMap ?? ""} onChange={(e) => { const next = e.target.value; const lines = next.split(/\r?\n/); if (lines.length > 48) return; setD((p) => ({ ...p, portMap: next })); }} placeholder={"例：\n01/40U | Gi1/0/1 -> FW\nA1/20U | ETH1 -> TOR"} />
+              <label className="text-xs text-[var(--muted)]">Port對接備註</label>
+              <textarea className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none min-h-[140px] whitespace-pre" value={d.portMap ?? ""} onChange={(e) => { setD((p) => ({ ...p, portMap: e.target.value })); }} placeholder={"例：\n01/40U | Gi1/0/1 -> FW\nA1/20U | ETH1 -> TOR"} />
             </div>
           </form>
         </div>
@@ -764,7 +770,7 @@ function DeviceModal({ title, initial, onClose, onSave }: { title: string; initi
 }
 
 /* -----------------------------
-  Dashboard 輪播機櫃 (極致放大滿版版)
+  ★ Dashboard 輪播機櫃 (極致輕量、彈性滿版) ★
 ----------------------------- */
 const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: Rack[] }) => {
   const [page, setPage] = useState(0);
@@ -782,12 +788,15 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
      rows.push(curRacks.slice(i, i + 6));
   }
 
-  const U_H = 22;
-
-  const getBlockStyle = (d: Device) => {
-    const sU = d.afterStartU ?? 1; const eU = d.afterEndU ?? sU;
-    const start = clampU(Math.min(sU, eU)); const end = clampU(Math.max(sU, eU));
-    return { bottom: (start - 1) * U_H, height: (end - start + 1) * U_H };
+  // 使用百分比計算，徹底移除 42 個網格的 DOM 渲染
+  const getPctStyle = (d: Device) => {
+    const sU = clampU(d.afterStartU ?? 1); 
+    const eU = clampU(d.afterEndU ?? sU);
+    const start = Math.min(sU, eU); 
+    const size = Math.abs(eU - sU) + 1;
+    const bottomPct = ((start - 1) / 42) * 100;
+    const heightPct = (size / 42) * 100;
+    return { bottom: `${bottomPct}%`, height: `calc(${heightPct}% - 2px)` };
   };
 
   return (
@@ -800,43 +809,33 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
         </div>
       </div>
       
-      <div className="flex flex-col gap-8 overflow-x-auto w-full pb-4 scrollbar-hide">
+      {/* 彈性拉伸的容器 */}
+      <div className="flex flex-col gap-6 w-full flex-1 min-h-[300px]">
         {rows.map((row, rIdx) => (
-          <div key={rIdx} className="flex gap-4 md:gap-6 min-w-max justify-center">
+          <div key={rIdx} className="flex gap-2 md:gap-4 flex-1 w-full justify-center">
             {row.map(rack => {
               const rackDevs = devices.filter(d => d.afterRackId === rack.id && d.afterStartU != null && d.afterEndU != null);
-              const displayName = rack.name === "不搬存放區C" ? "搬遷不上架存放區" : rack.name;
+              const displayName = rack.name === "不搬存放區C" ? "搬遷不上架" : rack.name;
               const isRed = rack.name.startsWith("不搬存放區");
 
               return (
-                <div key={rack.id} className="flex flex-col bg-slate-900 rounded-xl overflow-hidden flex-shrink-0 border border-slate-700 flex-1 min-w-[250px] max-w-[400px]">
-                  <div className={`px-4 py-2 text-center text-sm font-bold text-white truncate ${isRed ? "bg-red-800" : "bg-emerald-600"}`} title={displayName}>{displayName}</div>
+                // 每個機櫃 flex-1 自動瓜分畫面寬度，高度 100%
+                <div key={rack.id} className="flex flex-col bg-slate-900 rounded-lg md:rounded-xl overflow-hidden border border-slate-700 flex-1 min-w-[50px] max-w-[200px]">
+                  <div className={`px-1 py-1 md:py-2 text-center text-[10px] md:text-sm font-bold text-white truncate ${isRed ? "bg-red-800" : "bg-emerald-600"}`} title={displayName}>{displayName}</div>
                   
-                  <div className="relative w-full border-x-[8px] border-t-[8px] border-slate-600 bg-slate-800 shadow-inner mb-4" style={{ height: 42 * U_H }}>
-                    <div className="absolute left-0 top-0 bottom-0 w-6 bg-yellow-400/90 border-r border-slate-800 z-0" />
-                    
-                    {Array.from({ length: 42 }).map((_, i) => {
-                      const u = i + 1; const bottomPos = i * U_H;
-                      return (
-                        <React.Fragment key={`db-grid-${u}`}>
-                          <div className="absolute left-0 w-6 flex items-center justify-center text-slate-900 text-[8px] font-bold z-0" style={{ bottom: bottomPos, height: U_H }}>{u}</div>
-                          {u < 42 && (<div className={`absolute left-6 right-0 z-0 pointer-events-none ${u % 5 === 0 ? "bg-slate-500/80 h-[2px]" : "bg-slate-700/50 h-[1px]"}`} style={{ bottom: bottomPos + U_H }} />)}
-                        </React.Fragment>
-                      );
-                    })}
-
-                    <div className="absolute left-6 right-0 top-0 bottom-0 pointer-events-none z-10">
+                  <div className="relative w-full border-x-[4px] md:border-x-[8px] border-t-[4px] md:border-t-[8px] border-slate-600 bg-slate-800 shadow-inner flex-1 min-h-[150px]">
+                    <div className="absolute left-0 top-0 bottom-0 w-2 md:w-6 bg-yellow-400/90 border-r border-slate-800 z-0 hidden sm:block" />
+                    <div className="absolute left-0 sm:left-6 right-0 top-0 bottom-0 pointer-events-none z-10">
                       {rackDevs.map(d => {
-                        const { bottom, height } = getBlockStyle(d);
+                        const style = getPctStyle(d);
+                        const isDone = isMigratedComplete(d.migration);
                         return (
-                          <div key={d.id} className="absolute left-[1px] right-[1px] rounded flex items-center px-2 overflow-hidden shadow-md"
-                               style={{ bottom: bottom + 1, height: height - 2, backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.2) 100%)" }}>
-                            <div className="flex-1 h-full flex flex-col justify-center min-w-0 pr-14 drop-shadow-md text-white">
-                              {d.sizeU >= 2 ? (
-                                <><div className="truncate w-full font-bold text-[10px] sm:text-[11px] leading-tight tracking-wide">{d.deviceId} | {d.name}</div><div className="truncate w-full text-[9px] sm:text-[10px] opacity-90 font-medium leading-tight mt-0.5">{d.brand} | {d.model}</div></>
-                              ) : (<div className="truncate w-full font-bold text-[9px] sm:text-[10px] leading-tight">{d.deviceId} | {d.name} | {d.model}</div>)}
-                            </div>
-                            <div className="absolute bottom-1 right-1 flex items-center bg-black/40 px-1 py-[2px] rounded shadow-inner scale-[0.7] sm:scale-[0.8] origin-bottom-right"><LampsRow m={d.migration} /></div>
+                          <div key={d.id} className="absolute left-[1px] right-[1px] rounded flex flex-col justify-center items-center px-1 overflow-hidden shadow-md"
+                               style={{ ...style, backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.2) 100%)" }}>
+                            {/* 電腦版顯示文字 */}
+                            <div className="text-[10px] xl:text-[11px] text-white font-bold truncate w-full text-center leading-tight hidden xl:block px-1 drop-shadow-md">{d.deviceId}</div>
+                            {/* 燈號：手機版置中，大螢幕放下面 */}
+                            <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full mt-0.5 ${isDone ? "bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]" : "bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]"} shrink-0`} />
                           </div>
                         );
                       })}
@@ -853,7 +852,7 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
 };
 
 /* -----------------------------
-  ★ Dashboard (加入進度條與百分比) ★
+  Dashboard
 ----------------------------- */
 const Dashboard = () => {
   const devices = useStore((s) => s.devices);
@@ -867,7 +866,6 @@ const Dashboard = () => {
   const completed = devices.filter((d) => isMigratedComplete(d.migration)).length;
   const pending = Math.max(0, total - completed);
 
-  // 安全的百分比計算函數
   const calcPct = (count: number) => total > 0 ? Math.round((count / total) * 100) : 0;
 
   const chartData = [
@@ -879,13 +877,11 @@ const Dashboard = () => {
 
   return (
     <div className="p-6 space-y-6">
-      {/* 雙層統計看板 (第一排：總覽) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-xl flex flex-col justify-center">
           <div className="text-[var(--muted)] font-bold mb-2">設備總數</div>
           <div className="text-5xl font-black text-[var(--accent)]">{total}</div>
         </div>
-        
         <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-xl flex flex-col justify-center">
           <div className="flex justify-between items-end mb-1">
             <div className="text-[var(--muted)] font-bold">待處理</div>
@@ -896,7 +892,6 @@ const Dashboard = () => {
             <div className="h-full bg-red-500 transition-all duration-1000" style={{ width: `${calcPct(pending)}%` }} />
           </div>
         </div>
-
         <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-xl flex flex-col justify-center">
           <div className="flex justify-between items-end mb-1">
             <div className="text-[var(--muted)] font-bold">搬遷完成</div>
@@ -912,14 +907,8 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* 雙層統計看板 (第二排：四個燈號進度) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: '已上架', val: racked },
-          { label: '已接線', val: cabled },
-          { label: '已開機', val: powered },
-          { label: '已測試', val: tested },
-        ].map((item, idx) => (
+        {[{ label: '已上架', val: racked }, { label: '已接線', val: cabled }, { label: '已開機', val: powered }, { label: '已測試', val: tested }].map((item, idx) => (
           <div key={idx} className="bg-[var(--panel2)] border border-[var(--border)] p-4 rounded-xl flex flex-col">
             <div className="text-sm font-black text-[var(--muted)] mb-2">{item.label}</div>
             <div className="flex items-baseline justify-between mb-2">
@@ -933,7 +922,6 @@ const Dashboard = () => {
         ))}
       </div>
 
-      {/* 超大機櫃輪播 */}
       <DashboardFullCarousel devices={devices} racks={afterRacks} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -974,6 +962,9 @@ const Dashboard = () => {
   );
 };
 
+/* -----------------------------
+  匯入視窗
+----------------------------- */
 function FullCSVImportModal({ onClose }: { onClose: () => void }) {
   const importFullCSV = useStore((s) => s.importFullCSV);
   const [drag, setDrag] = useState(false);
@@ -1039,6 +1030,9 @@ function AppendCSVImportModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+/* -----------------------------
+  DevicesPage
+----------------------------- */
 type SortKey = "category" | "deviceId" | "name" | "brand" | "model" | "ports" | "sizeU" | "before" | "after" | "migration" | "complete";
 type SortDir = "asc" | "desc";
 
@@ -1075,7 +1069,6 @@ const DevicesPage = () => {
       if (typeof a === "number" && typeof b === "number") return a - b;
       return String(a).localeCompare(String(b));
     };
-
     return [...devices].sort((a, b) => {
       let va: any; let vb: any;
       switch (sortKey) {
@@ -1112,6 +1105,7 @@ const DevicesPage = () => {
           <p className="text-[var(--muted)] text-sm">{allowManage ? "新增/編輯/刪除設備；刪除會同步移除機櫃配置。" : "唯讀權限：可查看、可匯出 CSV、可切換狀態燈號，但不能調整清單。"}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          {/* CSV 匯出，使用防阻擋機制 */}
           <button onClick={() => canExportCSV(role) && downloadFullCSV(devices)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 font-bold"><Download size={16} /> 完整CSV匯出</button>
 
           {allowManage && (
@@ -1186,7 +1180,96 @@ const DevicesPage = () => {
 };
 
 /* -----------------------------
-  ★ Rack Planner (超高畫質 PDF 多頁匯出版) ★
+  Hover Card (tooltip)
+----------------------------- */
+function HoverCard({ x, y, d, beforePos, afterPos }: { x: number; y: number; d: Device; beforePos: string; afterPos: string; }) {
+  return (
+    <div className="fixed z-[9999] pointer-events-none" style={{ left: x + 16, top: y + 16 }}>
+      <div 
+        className="rounded-2xl border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.5)] w-[320px] p-4 text-left text-white"
+        style={{ backgroundColor: "rgba(15, 23, 42, 0.75)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-[10px] text-gray-300 font-medium">設備資訊</div>
+            <div className="font-black text-sm truncate text-white">{d.deviceId} · {d.name}</div>
+            <div className="text-[11px] text-gray-300 truncate mt-0.5">{d.brand} / {d.model} · {d.sizeU}U · {d.ports} ports</div>
+          </div>
+          <div className="pt-1"><LampsRow m={d.migration} /></div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-xl border border-white/10 bg-white/10 p-2"><div className="text-[10px] text-gray-400">搬遷前</div><div className="font-bold truncate text-white">{beforePos}</div></div>
+          <div className="rounded-xl border border-white/10 bg-white/10 p-2"><div className="text-[10px] text-gray-400">搬遷後</div><div className="font-bold truncate text-white">{afterPos}</div></div>
+        </div>
+        <div className="mt-3 text-[11px] text-gray-400 truncate">IP：{d.ip || "-"}　SN：{d.serial || "-"}</div>
+      </div>
+    </div>
+  );
+}
+
+function UnplacedPanel({ mode, unplaced, collapsed, setCollapsed, allowLayout }: { mode: PlacementMode; unplaced: Device[]; collapsed: boolean; setCollapsed: (v: boolean) => void; allowLayout: boolean; }) {
+  const setDraggingDevice = useStore(s => s.setDraggingDevice);
+  useEffect(() => { if (unplaced.length === 0 && !collapsed) setCollapsed(true); }, [unplaced.length]);
+
+  const isSticky = unplaced.length > 0 && !collapsed;
+
+  return (
+    <div className={`border border-[var(--border)] rounded-2xl shadow-2xl overflow-hidden mb-6 transition-all duration-300 ${isSticky ? "sticky top-[80px] z-[40] bg-[var(--panel)]/95 backdrop-blur-xl" : "bg-[var(--panel)]"}`}>
+      <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="font-black">未放置設備</div>
+          <div className="text-xs text-[var(--muted)]">{unplaced.length === 0 ? "全部已放置（已自動收合）" : `${unplaced.length} 台`}</div>
+        </div>
+        <button onClick={() => setCollapsed(!collapsed)} className="px-3 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-sm" title="收合/展開">
+          {collapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />} {collapsed ? "展開" : "收合"}
+        </button>
+      </div>
+      {!collapsed && (
+        <div className="p-4">
+          {unplaced.length === 0 ? (<div className="text-sm text-[var(--muted)]">✅ 沒有未放置設備</div>) : (
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {unplaced.map((d) => (
+                <div
+                  key={d.id} draggable={allowLayout}
+                  onDragStart={(ev) => { if (!allowLayout) return; ev.dataTransfer.setData("text/plain", d.id); setDraggingDevice(d); ev.dataTransfer.effectAllowed = "move"; }}
+                  onDragEnd={() => setDraggingDevice(null)}
+                  className={`min-w-[240px] p-3 rounded-xl shadow-md border border-white/10 transition-all ${allowLayout ? "cursor-grab active:cursor-grabbing hover:brightness-110 hover:scale-[1.02]" : "cursor-not-allowed opacity-90"}`}
+                  style={{ backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.15) 100%)", color: "white" }}
+                  title={allowLayout ? "拖曳到機櫃" : "權限不足，不允許拖放"}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-black truncate drop-shadow-md">{d.deviceId}</div>
+                      <div className="text-xs font-semibold opacity-90 truncate drop-shadow-sm mt-0.5">{d.name}</div>
+                      <div className="text-[10px] opacity-80 mt-1.5 truncate drop-shadow-sm">{d.brand} · {d.model} · {d.sizeU}U</div>
+                    </div>
+                    <div className="pt-1 bg-black/20 p-1 rounded-md shadow-inner"><LampsRow m={d.migration} /></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-2 text-xs text-[var(--muted)]">{allowLayout ? `提示：把設備拖到機櫃（${mode === "before" ? "搬遷前" : "搬遷後"}）` : "唯讀：只能查看/切換搬遷後燈號，不能拖放"}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddAndPlaceModal({ mode, rackId, u, onClose }: { mode: PlacementMode; rackId: string; u: number; onClose: () => void; }) {
+  const role = useStore((s) => s.role);
+  const addDevice = useStore((s) => s.addDevice);
+  const place = useStore((s) => s.place);
+  if (role !== "admin") return null;
+  const initial: DeviceDraft = { category: "Other", deviceId: "", name: "", brand: "", model: "", ports: 8, sizeU: 1, ip: "", serial: "", portMap: "" };
+  const displayName = rackId === "AFT_不搬存放區C" ? "搬遷不上架存放區" : rackId.replace(/^(BEF_|AFT_)/, "");
+  return (
+    <DeviceModal title={`新增設備並放置：${displayName} / ${u}U`} initial={initial} onClose={onClose} onSave={(d) => { const id = addDevice(d); const res = place(mode, id, rackId, u); if (!res.ok) alert(res.message); onClose(); }} />
+  );
+}
+
+/* -----------------------------
+  ★ Rack Planner (包含機櫃佈局 超高畫質 PDF 匯出) ★
 ----------------------------- */
 const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
   const racks = useStore((s) => (mode === "before" ? s.beforeRacks : s.afterRacks));
@@ -1241,6 +1324,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
     return out;
   }, [racks, mode]);
 
+  // ★ PDF 分頁：每兩排機櫃切成一頁
   const printPages = useMemo(() => {
     const pages = [];
     for (let i = 0; i < rackRows.length; i += 2) {
@@ -1288,6 +1372,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
     if (role === "admin") setAddPlace({ rackId, u });
   };
 
+  // ★ PDF 超高畫質匯出：逐頁截圖
   const handleExportRackPDF = () => {
     setIsExportingPDF(true);
     setTimeout(async () => {
@@ -1342,7 +1427,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
             <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Other }}></div> Other</div>
           </div>
           <button onClick={handleExportRackPDF} disabled={isExportingPDF} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-[var(--accent)] hover:text-black hover:border-[var(--accent)] font-bold transition-all flex items-center gap-2">
-            <Camera size={16} /> {isExportingPDF ? "產生多頁 PDF 中..." : "匯出滿版 PDF (A4橫式)"}
+            <FileText size={16} /> {isExportingPDF ? "產生多頁 PDF 中..." : "匯出滿版 PDF (A4橫式)"}
           </button>
         </div>
       </div>
@@ -1371,12 +1456,22 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
                         const u = i + 1;
                         const bottomPos = i * U_H;
                         const isThick = u % 5 === 0;
+                        // 安全判斷 hover 高亮
                         const isHoverTarget = allowLayout && dragHover?.rackId === rack.id && u >= dragHover.u && u < dragHover.u + (draggingDevice?.sizeU || 1);
 
                         return (
                           <React.Fragment key={`grid-${u}`}>
                             <div className="absolute left-0 w-7 sm:w-8 flex items-center justify-center text-slate-900 text-[8px] font-bold z-0" style={{ bottom: bottomPos, height: U_H }}>{u}</div>
-                            <div className="absolute left-7 sm:left-8 right-0 z-0 group cursor-pointer" style={{ bottom: bottomPos, height: U_H }} onDragOver={(e) => { allowLayout && e.preventDefault(); if (allowLayout && (dragHover?.rackId !== rack.id || dragHover?.u !== u)) { setDragHover({ rackId: rack.id, u }); } }} onDragLeave={() => { if (allowLayout && dragHover?.rackId === rack.id && dragHover?.u === u) { setDragHover(null); } }} onDrop={(e) => onDrop(e, rack.id, u)} onClick={() => onCellClick(rack.id, u)}>
+                            <div className="absolute left-7 sm:left-8 right-0 z-0 group cursor-pointer" style={{ bottom: bottomPos, height: U_H }} 
+                                 onDragOver={(e) => {
+                                   allowLayout && e.preventDefault();
+                                   if (allowLayout && (dragHover?.rackId !== rack.id || dragHover?.u !== u)) { setDragHover({ rackId: rack.id, u }); }
+                                 }} 
+                                 onDragLeave={() => {
+                                   if (allowLayout && dragHover?.rackId === rack.id && dragHover?.u === u) { setDragHover(null); }
+                                 }} 
+                                 onDrop={(e) => onDrop(e, rack.id, u)} 
+                                 onClick={() => onCellClick(rack.id, u)}>
                               <div className={`absolute inset-0 transition-colors ${isHoverTarget ? "bg-[var(--accent)]/40 border-y border-[var(--accent)] z-20" : "hover:bg-white/[0.05]"}`} />
                             </div>
                             {u < 42 && (<div className={`absolute left-7 sm:left-8 right-0 z-0 pointer-events-none ${isThick ? "bg-slate-500/80 h-[2px]" : "bg-slate-700/50 h-[1px]"}`} style={{ bottom: bottomPos + U_H }} />)}
@@ -1415,9 +1510,11 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
         ))}
       </div>
 
+      {/* ★ 隱藏的 PDF 超高畫質列印視圖 (每頁包含 2 排機櫃) ★ */}
       {isExportingPDF && (
         <div className="fixed top-[-9999px] left-[0] bg-[#0f172a] text-white z-[-1]">
           {printPages.map((pageRows, pageIndex) => (
+            // w-[2800px] 強制將 DOM 撐開，確保 html2canvas 截取出高像素圖片，不擠壓文字
             <div id={`pdf-rack-page-${pageIndex}`} key={`pdf-page-${pageIndex}`} className="w-[2800px] p-16 flex flex-col justify-start bg-[#0f172a]">
               <h1 className="text-5xl font-black text-center mb-12 text-white border-b border-slate-700 pb-6">MigratePro {title} - 第 {pageIndex + 1} 頁</h1>
               <div className="flex flex-col gap-12 flex-1">
@@ -1430,6 +1527,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
                         <div key={`pdf-rack-${rack.id}`} className="flex flex-col bg-slate-800 rounded-xl shadow-xl border border-slate-700 flex-1">
                           <div className={`px-4 py-3 text-center text-2xl font-bold text-white truncate rounded-t-xl ${isRed ? "bg-red-800" : "bg-emerald-600"}`}>{displayName}</div>
                           <div className="p-4 bg-slate-900 rounded-b-xl flex justify-center">
+                            {/* PDF 使用正常的 U_H=22 高度繪製，確保比例正確 */}
                             <div className="relative w-full border-x-[8px] border-t-[8px] border-slate-600 bg-[#0f172a] shadow-inner mb-4" style={{ height: 42 * U_H }}>
                               <div className="absolute left-0 top-0 bottom-0 w-12 bg-yellow-400/90 border-r border-slate-800 z-0" />
                               {Array.from({ length: 42 }).map((_, i) => (

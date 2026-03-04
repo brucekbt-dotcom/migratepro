@@ -15,8 +15,6 @@ import {
   ChevronsRight,
   PanelRightClose,
   PanelRightOpen,
-  CheckCircle2,
-  AlertCircle,
   LogOut,
   User,
   Upload,
@@ -169,8 +167,6 @@ const AFTER_RACKS: Rack[] = [
   ...["HUB 20F", "SmartHouse 20F", "不搬存放區A", "不搬存放區B", "不搬存放區C"].map((n) => ({ id: `AFT_${n}`, name: n, units: 42 })),
 ];
 
-const mockDevices: Device[] = [];
-
 const DEFAULT_ACCOUNTS: Account[] = [
   { username: "admin", password: "migration123", role: "admin" },
   { username: "Vendor", password: "migration666", role: "vendor" },
@@ -182,8 +178,6 @@ const DEFAULT_ACCOUNTS: Account[] = [
 const canManageAssets = (role: Role) => role === "admin";
 const canEditPortMap = (role: Role) => role === "admin" || role === "cable";
 const canToggleFlags = (_role: Role) => true;
-
-// ★ 破案關鍵：補上之前漏掉的匯出權限檢查函數，解決點擊當機問題！
 const canExportCSV = (_role: Role) => true;
 
 const clampU = (u: number) => Math.max(1, Math.min(42, u));
@@ -230,7 +224,6 @@ const downloadFullCSV = (devices: Device[]) => {
   ].map(escapeCSV).join(','));
 
   const csvContent = "\uFEFF" + [CSV_HEADER, ...rows].join("\n");
-  // 改用 encodeURIComponent 確保 # 或 & 等特殊符號不會截斷資料
   const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
   const link = document.createElement("a");
   link.setAttribute("href", encodedUri);
@@ -410,7 +403,7 @@ function loadAccounts(): Account[] {
 const useStore = create<Store>((set, get) => ({
   beforeRacks: BEFORE_RACKS,
   afterRacks: AFTER_RACKS,
-  devices: normalizeDevices(readJson<Device[]>(LS.devices, mockDevices)),
+  devices: normalizeDevices(readJson<Device[]>(LS.devices, [])),
 
   theme: (localStorage.getItem(LS.theme) as ThemeMode) || "dark",
   themeStyle: (localStorage.getItem(LS.themeStyle) as ThemeStyle) || "neon",
@@ -731,10 +724,11 @@ function DeviceModal({ title, initial, onClose, onSave }: { title: string; initi
 }
 
 /* -----------------------------
-  ★ Dashboard 輪播機櫃 (終極拔除黃色刻度、極致滿版、超大高度版) ★
+  ★ Dashboard 輪播機櫃 (大螢幕平分不捲動，左字右燈精緻版) ★
 ----------------------------- */
 const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: Rack[] }) => {
   const [page, setPage] = useState(0);
+  // 第一頁放 A, B 排共 12 個機櫃，一次展示完畢！
   const p1 = useMemo(() => racks.filter((r) => r.id.includes("AFT_A") || r.id.includes("AFT_B")), [racks]);
   const p2 = useMemo(() => racks.filter((r) => !r.id.includes("AFT_A") && !r.id.includes("AFT_B")), [racks]);
   
@@ -745,7 +739,7 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
 
   const curRacks = page === 0 ? p1 : p2;
 
-  // 100% 滿版，無左側干擾刻度
+  // 使用百分比，徹底移除黃色刻度條，高度 100%
   const getPctStyle = (d: Device) => {
     const sU = clampU(d.afterStartU ?? 1); 
     const eU = clampU(d.afterEndU ?? sU);
@@ -757,8 +751,8 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
   };
 
   return (
-    <div className="bg-[var(--panel)] border border-[var(--border)] p-4 md:p-8 rounded-2xl shadow-xl flex flex-col w-full lg:col-span-2">
-      <div className="flex w-full justify-between items-center mb-6">
+    <div className="bg-[var(--panel)] border border-[var(--border)] p-4 md:p-6 rounded-2xl shadow-xl flex flex-col w-full lg:col-span-2">
+      <div className="flex w-full justify-between items-center mb-4">
         <h3 className="text-xl font-black flex items-center gap-2"><Network className="text-[var(--accent)]" /> 搬遷後機櫃佈局現況 ({page === 0 ? "1/2" : "2/2"})</h3>
         <div className="flex gap-2">
           <button onClick={() => setPage(0)} className={`w-3 h-3 rounded-full transition-all ${page === 0 ? "bg-[var(--accent)] scale-110" : "bg-[var(--border)]"}`} />
@@ -766,27 +760,34 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
         </div>
       </div>
       
-      {/* 高度再度拉高至 min-h-[600px] */}
-      <div className="flex gap-4 md:gap-6 overflow-x-auto w-full flex-1 min-h-[600px] pb-4 scrollbar-hide snap-x">
+      {/* 大螢幕 (lg 以上) 取消 min-w 限制，讓 12 櫃自動彈性壓縮平分畫面，無 Scrollbar。
+        手機版保留 min-w-[120px] 並允許橫向滑動。
+        高度拉伸至 500px~600px 確保清晰。
+      */}
+      <div className="flex gap-1.5 md:gap-2 lg:gap-3 overflow-x-auto w-full flex-1 min-h-[500px] xl:min-h-[600px] pb-2 scrollbar-hide snap-x">
         {curRacks.map(rack => {
           const rackDevs = devices.filter(d => d.afterRackId === rack.id && d.afterStartU != null && d.afterEndU != null);
           const displayName = rack.name === "不搬存放區C" ? "搬遷不上架" : rack.name;
           const isRed = rack.name.startsWith("不搬存放區");
 
           return (
-            <div key={rack.id} className="flex flex-col bg-slate-900 rounded-xl overflow-hidden flex-shrink-0 snap-center border border-slate-700 min-w-[200px] max-w-[320px] flex-1">
-              <div className={`px-2 py-3 text-center text-sm md:text-base font-bold text-white truncate ${isRed ? "bg-red-800" : "bg-emerald-600"}`} title={displayName}>{displayName}</div>
+            <div key={rack.id} className="flex flex-col bg-slate-900 rounded-lg overflow-hidden flex-shrink-0 snap-center border border-slate-700 min-w-[120px] lg:min-w-0 flex-1">
+              <div className={`px-1 py-2 text-center text-xs xl:text-sm font-bold text-white truncate ${isRed ? "bg-red-800" : "bg-emerald-600"}`} title={displayName}>{displayName}</div>
               
-              {/* 拔除左側黃色刻度區，直接 100% 顯示設備內容 */}
-              <div className="relative w-full border-x-[6px] md:border-x-[8px] border-t-[6px] md:border-t-[8px] border-slate-600 bg-[#0b1220] shadow-inner flex-1">
+              {/* 完全移除左側 U 數區域，100% 顯示設備圖卡 */}
+              <div className="relative w-full border-x-[4px] xl:border-x-[6px] border-t-[4px] xl:border-t-[6px] border-slate-600 bg-[#0b1220] shadow-inner flex-1">
                 <div className="absolute inset-0 pointer-events-none z-10">
                   {rackDevs.map(d => {
                     const style = getPctStyle(d);
                     return (
-                      <div key={d.id} className="absolute left-[1px] right-[1px] rounded flex flex-col justify-center items-center px-2 md:px-3 overflow-hidden shadow-md"
+                      <div key={d.id} className="absolute left-0 right-0 rounded flex flex-row justify-between items-center px-1 md:px-2 overflow-hidden shadow-md"
                            style={{ ...style, backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.2) 100%)" }}>
-                        <div className="text-[12px] sm:text-[14px] xl:text-[16px] text-white font-black truncate w-full text-center leading-tight drop-shadow-md">{d.deviceId}</div>
-                        <div className="mt-1.5 xl:mt-2 scale-90 xl:scale-110">
+                        
+                        {/* 左側：設備編號，強制靠左、截斷防重疊 */}
+                        <div className="text-[9px] xl:text-[12px] 2xl:text-[14px] text-white font-black truncate text-left drop-shadow-md pr-1" title={d.deviceId}>{d.deviceId}</div>
+                        
+                        {/* 右側：狀態燈號，包覆在暗色底框內，並等比例縮小 */}
+                        <div className="flex shrink-0 items-center bg-black/50 rounded shadow-inner p-0.5 xl:p-1 transform origin-right scale-[0.6] xl:scale-[0.75] 2xl:scale-90">
                           <LampsRow m={d.migration} />
                         </div>
                       </div>
@@ -1057,8 +1058,8 @@ const DevicesPage = () => {
           <p className="text-[var(--muted)] text-sm">{allowManage ? "新增/編輯/刪除設備；刪除會同步移除機櫃配置。" : "唯讀權限：可查看、可匯出 CSV、可切換狀態燈號，但不能調整清單。"}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          {/* 保證能執行的下載按鈕 (因為修正了 canExportCSV) */}
-          <button onClick={() => canExportCSV(role) && downloadFullCSV(devices)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-[var(--accent)] hover:text-black hover:border-[var(--accent)] transition-colors flex items-center gap-2 font-bold"><Download size={16} /> 完整CSV匯出</button>
+          {/* 回歸穩定版 CSV */}
+          <button onClick={() => canExportCSV(role) && downloadFullCSV(devices)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 font-bold"><Download size={16} /> 完整CSV匯出</button>
 
           {allowManage && (
             <>
@@ -1221,7 +1222,7 @@ function AddAndPlaceModal({ mode, rackId, u, onClose }: { mode: PlacementMode; r
 }
 
 /* -----------------------------
-  ★ Rack Planner (拔除 PDF 匯出按鈕，極致輕量) ★
+  ★ Rack Planner (拔除 PDF，回歸輕量乾淨) ★
 ----------------------------- */
 const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
   const racks = useStore((s) => (mode === "before" ? s.beforeRacks : s.afterRacks));
@@ -1406,7 +1407,6 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
           </div>
         ))}
       </div>
-
       {addPlace && <AddAndPlaceModal mode={mode} rackId={addPlace.rackId} u={addPlace.u} onClose={() => setAddPlace(null)} />}
       {hoverInfo && <HoverCard {...hoverInfo} />}
     </div>

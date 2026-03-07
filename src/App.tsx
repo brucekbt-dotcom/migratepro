@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Server, ArrowLeftRight, ArrowRightLeft, Plus, Download, Trash2, Edit3, X,
   ChevronsLeft, ChevronsRight, PanelRightClose, PanelRightOpen, LogOut, User, Upload, Expand,
   Minimize, Shield, KeyRound, Save, Sparkles, FilePlus, Network, Globe, Link2, MessageSquare,
-  AlertCircle, CheckCircle2, BookOpen, CalendarClock, Play, Check, Tv, TvOff
+  AlertCircle, CheckCircle2, BookOpen, CalendarClock, Play, Check, Tv
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { initializeApp } from "firebase/app";
@@ -156,6 +156,175 @@ const getAccessoryOptions = (lang: Lang) => [ t("accCable1U", lang), t("accCable
 const FIXED_COLORS = { Network: "#22c55e", Server: "#3b82f6", Storage: "#8b5cf6", Accessory: "#64748b", Other: "#fb923c" };
 
 /* -----------------------------
+  Rack Layouts
+----------------------------- */
+const BEFORE_RACKS: Rack[] = [
+  ...["10", "09", "08", "07", "06", "05", "04", "03", "02", "01"].map((n) => ({ id: `BEF_${n}`, name: n, units: 42 })),
+  ...["2F-A", "2F-B", "3F-A", "3F-B", "4F-A", "4F-B", "9F", "SmartHouseA", "SmartHouseB"].map((n) => ({ id: `BEF_${n}`, name: n, units: 42 })),
+  { id: "BEF_New_Device", name: "rackNewDevice", units: 42 }
+];
+
+const AFTER_RACKS: Rack[] = [
+  ...["A1", "A2", "A3", "A4", "A5", "A6", "B1", "B2", "B3", "B4", "B5", "B6", "HUB 15L", "HUB 15R", "HUB 16L", "HUB 16R", "HUB 17L", "HUB 17R", "HUB 20F"].map((n) => ({ id: `AFT_${n}`, name: n, units: 42 })),
+  { id: "AFT_SmartHouse_20F", name: "rackSmartHouse", units: 42 },
+  { id: "AFT_Unmoved_A", name: "rackUnmovedA", units: 42 },
+  { id: "AFT_Unmoved_B", name: "rackUnmovedB", units: 42 },
+  { id: "AFT_Unmoved_C", name: "rackUnmovedC", units: 42 }
+];
+
+const getRackName = (id: string, lang: Lang) => {
+  if(!id) return "-";
+  const clean = id.replace(/^(BEF_|AFT_)/, "");
+  if (clean === "New_Device") return t("rackNewDevice", lang);
+  if (clean === "Unmoved_A") return t("rackUnmovedA", lang);
+  if (clean === "Unmoved_B") return t("rackUnmovedB", lang);
+  if (clean === "Unmoved_C") return t("rackUnmovedC", lang);
+  if (clean === "SmartHouse_20F") return t("rackSmartHouse", lang);
+  return clean;
+};
+
+/* -----------------------------
+  權限與小工具
+----------------------------- */
+const canManageAssets = (role: Role) => role === "admin";
+const canEditPortMap = (role: Role) => role === "admin" || role === "cable";
+const canToggleFlags = (_role: Role) => true;
+const canExportCSV = (_role: Role) => true;
+
+const clampU = (u: number) => Math.max(1, Math.min(42, u));
+const rangesOverlap = (aS: number, aE: number, bS: number, bE: number) => Math.max(aS, bS) <= Math.min(aE, bE);
+const isMigratedComplete = (m: MigrationFlags) => m.racked && m.cabled && m.powered && m.tested;
+
+const readJson = <T,>(k: string, fallback: T): T => { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : fallback; } catch { return fallback; } };
+const writeJson = (k: string, v: any) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+
+const syncToCloud = async (patch: any) => {
+  try { const cleanPatch = JSON.parse(JSON.stringify(patch)); await setDoc(doc(db, "migratePro", "mainState"), cleanPatch, { merge: true }); } catch (e) {}
+};
+
+const syncToCloudFull = async (s: any) => {
+  try { await setDoc(doc(db, "migratePro", "mainState"), JSON.parse(JSON.stringify(s)), { merge: true }); } catch (e) {}
+};
+
+function loadAccounts(): Account[] {
+  const v = readJson<Account[]>(LS.accounts, []);
+  if (!Array.isArray(v) || v.length === 0) { const d = [{ username: "admin", password: "123", role: "admin" as Role }]; writeJson(LS.accounts, d); return d; }
+  const a = v.some((x) => x.username === "admin") ? v : [{ username: "admin", password: "123", role: "admin" as Role }, ...v];
+  return a.map(x => x.username === "admin" ? {...x, role: "admin"} : x);
+}
+
+/* -----------------------------
+  CSV 工具函式 
+----------------------------- */
+const escapeCSV = (str: string | number | undefined | null) => {
+  if (str == null) return "";
+  return `"${String(str).replace(/"/g, '""')}"`;
+};
+
+const CSV_HEADER = "id,category,deviceId,name,brand,model,ports,sizeU,ip,serial,portMap,connections,beforeRackId,beforeStartU,beforeEndU,afterRackId,afterStartU,afterEndU,m_racked,m_cabled,m_powered,m_tested";
+
+const downloadFullCSV = (devices: Device[]) => {
+  const rows = devices.map(d => [
+    d.id, d.category, d.deviceId, d.name, d.brand, d.model, d.ports, d.sizeU,
+    d.ip || "", d.serial || "", d.portMap || "",
+    d.connections ? JSON.stringify(d.connections) : "[]",
+    d.beforeRackId || "", d.beforeStartU || "", d.beforeEndU || "",
+    d.afterRackId || "", d.afterStartU || "", d.afterEndU || "",
+    d.migration.racked ? "1" : "0", d.migration.cabled ? "1" : "0", d.migration.powered ? "1" : "0", d.migration.tested ? "1" : "0"
+  ].map(escapeCSV).join(','));
+
+  const csvContent = "\uFEFF" + [CSV_HEADER, ...rows].join("\n");
+  const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
+  const link = document.createElement("a"); link.setAttribute("href", encodedUri); 
+  link.setAttribute("download", `MigratePro_FullBackup_${getTimestamp()}.csv`);
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+};
+
+const downloadCableLabelsCSV = (devices: Device[], lang: Lang) => {
+  const rows: string[] = [];
+  const header = [t("lblSrcDev", lang), t("lblTgtDev", lang), t("lblBefSrc", lang), t("lblBefTgt", lang), t("lblAftSrc", lang), t("lblAftTgt", lang)];
+  rows.push(header.map(escapeCSV).join(","));
+
+  devices.forEach(d => {
+    if (!d.connections) return;
+    d.connections.forEach(c => {
+      const target = devices.find(x => x.id === c.targetId);
+      if (!target) return;
+      const getRack = (rId: string | undefined) => rId ? getRackName(rId, lang) : "-";
+      const bSrc = `${getRack(d.beforeRackId)}/${d.beforeStartU||"-"}U/${d.name}/${c.localPort||"-"}`;
+      const bTgt = `${getRack(target.beforeRackId)}/${target.beforeStartU||"-"}U/${target.name}/${c.targetPort||"-"}`;
+      const aSrc = `${getRack(d.afterRackId)}/${d.afterStartU||"-"}U/${d.name}/${c.localPort||"-"}`;
+      const aTgt = `${getRack(target.afterRackId)}/${target.afterStartU||"-"}U/${target.name}/${c.targetPort||"-"}`;
+      rows.push([d.name, target.name, bSrc, bTgt, aSrc, aTgt].map(escapeCSV).join(","));
+    });
+  });
+
+  const csvContent = "\uFEFF" + rows.join("\n");
+  const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
+  const link = document.createElement("a"); link.setAttribute("href", encodedUri); 
+  link.setAttribute("download", `CableLabels_${getTimestamp()}.csv`);
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+};
+
+const downloadFullCSVTemplate = () => {
+  const csvContent = "\uFEFF" + CSV_HEADER + "\n";
+  const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
+  const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "MigratePro_Template.csv");
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+};
+
+const parseCSV = (str: string): string[][] => {
+  const delimiter = str.includes('\t') && (!str.includes(',') || str.indexOf('\t') < str.indexOf(',')) ? '\t' : ',';
+  const arr: string[][] = []; let quote = false, row = 0, col = 0;
+  for (let c = 0; c < str.length; c++) {
+    let cc = str[c], nc = str[c+1];
+    arr[row] = arr[row] || []; arr[row][col] = arr[row][col] || '';
+    if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }
+    if (cc === '"') { quote = !quote; continue; }
+    if (cc === delimiter && !quote) { ++col; continue; }
+    if (cc === '\r' && nc === '\n' && !quote) { ++row; col = 0; ++c; continue; }
+    if (cc === '\n' && !quote) { ++row; col = 0; continue; }
+    if (cc === '\r' && !quote) { ++row; col = 0; continue; }
+    arr[row][col] += cc;
+  }
+  return arr;
+};
+
+const backwardCompatRackId = (val: string | undefined): string | undefined => {
+  if (!val) return undefined;
+  if (val.includes("新購設備存放區")) return "BEF_New_Device";
+  if (val.includes("不搬存放區A")) return "AFT_Unmoved_A";
+  if (val.includes("不搬存放區B")) return "AFT_Unmoved_B";
+  if (val.includes("不搬存放區C") || val.includes("搬遷不上架存放區")) return "AFT_Unmoved_C";
+  if (val.includes("SmartHouse 20F")) return "AFT_SmartHouse_20F";
+  if (!val.startsWith("BEF_") && !val.startsWith("AFT_")) {
+    if (val === "10" || val === "09" || val.includes("F")) return `BEF_${val}`;
+    if (val.includes("A") || val.includes("B") || val.includes("HUB")) return `AFT_${val}`;
+  }
+  return val;
+};
+
+const normalizeDevices = (raw: any[]): Device[] => {
+  const arr = Array.isArray(raw) ? raw : [];
+  return arr.map((d: any) => {
+    const sizeU = Math.max(1, Math.min(42, Number(d?.sizeU ?? 1)));
+    let beforeRackId = backwardCompatRackId(d?.beforeRackId);
+    let afterRackId = backwardCompatRackId(d?.afterRackId);
+    let connections = []; try { connections = typeof d?.connections === 'string' ? JSON.parse(d.connections) : (d?.connections || []); } catch(e){}
+
+    return {
+      id: String(d?.id ?? crypto.randomUUID()), category: (d?.category as DeviceCategory) || "Other",
+      deviceId: String(d?.deviceId ?? ""), name: String(d?.name ?? ""), brand: String(d?.brand ?? ""), model: String(d?.model ?? ""),
+      ports: Number(d?.ports ?? 0), sizeU, ip: String(d?.ip ?? ""), serial: String(d?.serial ?? ""), portMap: String(d?.portMap ?? ""),
+      connections: Array.isArray(connections) ? connections : [],
+      beforeRackId, beforeStartU: d?.beforeStartU ?? undefined, beforeEndU: d?.beforeEndU ?? undefined,
+      afterRackId, afterStartU: d?.afterStartU ?? undefined, afterEndU: d?.afterEndU ?? undefined,
+      migration: { racked: Boolean(d?.migration?.racked ?? false), cabled: Boolean(d?.migration?.cabled ?? false), powered: Boolean(d?.migration?.powered ?? false), tested: Boolean(d?.migration?.tested ?? false) },
+    } as Device;
+  });
+};
+
+/* -----------------------------
   Store Setup
 ----------------------------- */
 interface Store {
@@ -168,20 +337,9 @@ interface Store {
   addDevice: (draft: DeviceDraft) => string; updateDevice: (id: string, patch: Partial<DeviceDraft | {portMap?: string, connections?: Connection[]}>) => void; deleteDeviceById: (id: string) => void;
   importFullCSV: (fileText: string) => { ok: boolean; message?: string }; appendDevicesFromCSV: (fileText: string) => { ok: boolean; message?: string };
   clearPlacement: (mode: PlacementMode, id: string) => void; place: (mode: PlacementMode, deviceId: string, rackId: string, startU: number) => { ok: boolean; message?: string };
-  setMigrationFlag: (id: string, patch: Partial<MigrationFlags>) => void;
+  setMigrationFlag: (id: string, patch: Partial<MigrationFlags>) => void; repairRackIds: () => void;
   addIssue: (title: string, desc: string) => void; updateIssueStatus: (id: string, status: IssueStatus) => void; deleteIssue: (id: string) => void; addIssueReply: (id: string, text: string) => void;
   updateProjectInfo: (info: ProjectInfo) => void; addTask: (task: Omit<Task, "id"|"status">) => void; updateTaskStatus: (id: string, status: TaskStatus) => void; deleteTask: (id: string) => void;
-}
-
-const syncToCloudFull = async (s: any) => {
-  try { await setDoc(doc(db, "migratePro", "mainState"), JSON.parse(JSON.stringify(s)), { merge: true }); } catch (e) {}
-};
-
-function loadAccounts(): Account[] {
-  const v = readJson<Account[]>(LS.accounts, []);
-  if (!Array.isArray(v) || v.length === 0) { const d = [{ username: "admin", password: "123", role: "admin" as Role }]; writeJson(LS.accounts, d); return d; }
-  const a = v.some((x) => x.username === "admin") ? v : [{ username: "admin", password: "123", role: "admin" as Role }, ...v];
-  return a.map(x => x.username === "admin" ? {...x, role: "admin"} : x);
 }
 
 const useStore = create<Store>((set, get) => ({
@@ -218,11 +376,12 @@ const useStore = create<Store>((set, get) => ({
   addDevice: (draft) => { const id = crypto.randomUUID(); set((s) => { const next = [...s.devices, { ...draft, id, migration: { racked: false, cabled: false, powered: false, tested: false } } as Device]; writeJson(LS.devices, next); syncToCloudFull({ devices: next }); return { devices: next }; }); return id; },
   updateDevice: (id, patch) => set((s) => { const next = s.devices.map((d) => d.id === id ? ({ ...d, ...patch } as Device) : d); writeJson(LS.devices, next); syncToCloudFull({ devices: next }); return { devices: next }; }),
   deleteDeviceById: (id) => set((s) => { const next = s.devices.filter((d) => d.id !== id); writeJson(LS.devices, next); syncToCloudFull({ devices: next }); return { devices: next, selectedDeviceId: s.selectedDeviceId === id ? null : s.selectedDeviceId }; }),
-  importFullCSV: (fileText) => { /* implementation same as before */ try { const r = parseCSV(fileText); if(r.length<2) return {ok:false}; const h=r[0].map(x=>x.trim()); const g=(row:string[],k:string)=>String(row[h.indexOf(k)]||"").trim(); const devs:Device[]=r.slice(1).map(row=>({ id:g(row,"id")||crypto.randomUUID(), category:(g(row,"category") as DeviceCategory)||"Other", deviceId:g(row,"deviceId"), name:g(row,"name"), brand:g(row,"brand"), model:g(row,"model"), ports:Number(g(row,"ports"))||0, sizeU:Math.max(1,Math.min(42,Number(g(row,"sizeU"))||1)), ip:g(row,"ip"), serial:g(row,"serial"), portMap:g(row,"portMap"), connections:(()=>{try{return JSON.parse(g(row,"connections"))}catch(e){return []}})(), beforeRackId:backwardCompatRackId(g(row,"beforeRackId")||undefined), beforeStartU:g(row,"beforeStartU")?Number(g(row,"beforeStartU")):undefined, beforeEndU:g(row,"beforeEndU")?Number(g(row,"beforeEndU")):undefined, afterRackId:backwardCompatRackId(g(row,"afterRackId")||undefined), afterStartU:g(row,"afterStartU")?Number(g(row,"afterStartU")):undefined, afterEndU:g(row,"afterEndU")?Number(g(row,"afterEndU")):undefined, migration: { racked:g(row,"m_racked")==="1", cabled:g(row,"m_cabled")==="1", powered:g(row,"m_powered")==="1", tested:g(row,"m_tested")==="1" } })); writeJson(LS.devices, devs); syncToCloudFull({devices:devs}); set({devices:devs}); return {ok:true}; }catch(e){return {ok:false};} },
+  importFullCSV: (fileText) => { try { const r = parseCSV(fileText); if(r.length<2) return {ok:false}; const h=r[0].map(x=>x.trim()); const g=(row:string[],k:string)=>String(row[h.indexOf(k)]||"").trim(); const devs:Device[]=r.slice(1).map(row=>({ id:g(row,"id")||crypto.randomUUID(), category:(g(row,"category") as DeviceCategory)||"Other", deviceId:g(row,"deviceId"), name:g(row,"name"), brand:g(row,"brand"), model:g(row,"model"), ports:Number(g(row,"ports"))||0, sizeU:Math.max(1,Math.min(42,Number(g(row,"sizeU"))||1)), ip:g(row,"ip"), serial:g(row,"serial"), portMap:g(row,"portMap"), connections:(()=>{try{return JSON.parse(g(row,"connections"))}catch(e){return []}})(), beforeRackId:backwardCompatRackId(g(row,"beforeRackId")||undefined), beforeStartU:g(row,"beforeStartU")?Number(g(row,"beforeStartU")):undefined, beforeEndU:g(row,"beforeEndU")?Number(g(row,"beforeEndU")):undefined, afterRackId:backwardCompatRackId(g(row,"afterRackId")||undefined), afterStartU:g(row,"afterStartU")?Number(g(row,"afterStartU")):undefined, afterEndU:g(row,"afterEndU")?Number(g(row,"afterEndU")):undefined, migration: { racked:g(row,"m_racked")==="1", cabled:g(row,"m_cabled")==="1", powered:g(row,"m_powered")==="1", tested:g(row,"m_tested")==="1" } })); writeJson(LS.devices, devs); syncToCloudFull({devices:devs}); set({devices:devs}); return {ok:true}; }catch(e){return {ok:false};} },
   appendDevicesFromCSV: (fileText) => { try { const r=parseCSV(fileText); if(r.length<2)return{ok:false}; const h=r[0].map(x=>x.trim()); const g=(row:string[],k:string)=>String(row[h.indexOf(k)]||"").trim(); const newDevs:Device[]=[]; for(let i=1;i<r.length;i++){const row=r[i]; if(row.length<3)continue; const dId=g(row,"deviceId"),nm=g(row,"name"); if(!dId||!nm)continue; newDevs.push({id:crypto.randomUUID(),category:(g(row,"category") as DeviceCategory)||"Other",deviceId:dId,name:nm,brand:g(row,"brand"),model:g(row,"model"),ports:Number(g(row,"ports"))||0,sizeU:Math.max(1,Math.min(42,Number(g(row,"sizeU"))||1)),ip:g(row,"ip"),serial:g(row,"serial"),portMap:g(row,"portMap"),connections:[],migration:{racked:false,cabled:false,powered:false,tested:false}})} writeJson(LS.devices,[...get().devices,...newDevs]); syncToCloudFull({devices:get().devices}); set({devices:get().devices}); return {ok:true} }catch(e){return {ok:false}} },
   clearPlacement: (m, id) => set((s) => { const n=s.devices.map(d=>d.id!==id?d:m==="before"?{...d,beforeRackId:undefined,beforeStartU:undefined,beforeEndU:undefined}:{...d,afterRackId:undefined,afterStartU:undefined,afterEndU:undefined}); writeJson(LS.devices,n); syncToCloudFull({devices:n}); return{devices:n} }),
   place: (m, dId, rId, sU) => { const devs=get().devices; const d=devs.find(x=>x.id===dId); if(!d)return{ok:false}; const s=clampU(sU); const e=s+Math.max(1,Math.min(42,d.sizeU))-1; if(e>42)return{ok:false}; const c=devs.find(x=>{if(x.id===dId)return false; const xr=m==="before"?x.beforeRackId:x.afterRackId; const xs=m==="before"?x.beforeStartU:x.afterStartU; const xe=m==="before"?x.beforeEndU:x.afterEndU; return xr===rId&&xs!=null&&xe!=null&&rangesOverlap(s,e,xs,xe)}); if(c)return{ok:false,message:`Collision: ${c.deviceId}`}; const n=devs.map(x=>x.id===dId?m==="before"?{...x,beforeRackId:rId,beforeStartU:s,beforeEndU:e}:{...x,afterRackId:rId,afterStartU:s,afterEndU:e}:x); writeJson(LS.devices,n); syncToCloudFull({devices:n}); set({devices:n}); return{ok:true} },
   setMigrationFlag: (id, p) => set((s) => { const n=s.devices.map(d=>d.id===id?{...d,migration:{...d.migration,...p}}:d); writeJson(LS.devices,n); syncToCloudFull({devices:n}); return{devices:n} }),
+  repairRackIds: () => set((s) => { const n=s.devices.map(d=>({...d,beforeRackId:backwardCompatRackId(d.beforeRackId),afterRackId:backwardCompatRackId(d.afterRackId)})); writeJson(LS.devices,n); syncToCloudFull({devices:n}); return{devices:n} }),
 
   addIssue: (title, description) => set((s) => { const n:Issue[]=[{id:crypto.randomUUID(),title,description,author:s.userName||"Unknown",createdAt:Date.now(),status:"open",replies:[]},...s.issues]; writeJson(LS.issues,n); syncToCloudFull({issues:n}); return{issues:n} }),
   updateIssueStatus: (id, status) => set((s) => { const n=s.issues.map(i=>i.id===id?{...i,status}:i); writeJson(LS.issues,n); syncToCloudFull({issues:n}); return{issues:n} }),
@@ -235,6 +394,9 @@ const useStore = create<Store>((set, get) => ({
   deleteTask: (id) => set((s) => { const n = s.tasks.filter(t => t.id !== id); writeJson(LS.tasks, n); syncToCloudFull({tasks: n}); return {tasks: n} }),
 }));
 
+/* -----------------------------
+  Theme Tokens (Continued)
+----------------------------- */
 const ThemeTokens = () => {
   const style = useStore((s) => s.themeStyle);
   const presets: Record<ThemeStyle, { light: string; dark: string }> = {
@@ -424,7 +586,7 @@ const Dashboard = () => {
             <button onClick={()=>setDashTab("gantt")} className={`px-4 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 ${dashTab==='gantt'?'bg-[var(--accent)] text-black shadow':'text-[var(--text)] hover:bg-white/5'}`}><CalendarClock size={16}/> {t("navRunbook", lang)}</button>
           </div>
           <button onClick={()=>setTvMode(!tvMode)} className={`px-4 py-2 rounded-xl text-sm font-extrabold flex items-center gap-2 transition-all ${tvMode ? 'bg-red-500 text-white animate-pulse' : 'border border-[var(--border)] text-[var(--text)] hover:bg-[var(--panel2)]'}`}>
-            {tvMode ? <><TvOff size={16}/> {t("tvModeOn", lang)}</> : <><Tv size={16}/> {t("tvModeOff", lang)}</>}
+            {tvMode ? <><Tv size={16}/> {t("tvModeOn", lang)}</> : <><Tv size={16}/> {t("tvModeOff", lang)}</>}
           </button>
         </div>
         {dashTab === "rack" ? <DashboardFullCarousel devices={devices} racks={afterRacks} /> : <DashboardGanttView />}
@@ -474,7 +636,7 @@ const RunbookPage = () => {
 
   const NewTaskModal = () => {
     const [tTitle, setTTitle] = useState(""); const [v, setV] = useState(vendors[0] || "");
-    const [sh, setSh] = useState(16); const [eh, setEh] = useState(20); // Default 08:00 - 10:00
+    const [sh, setSh] = useState(16); const [eh, setEh] = useState(20);
     return (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
         <div className="w-full max-w-md rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 shadow-2xl">
@@ -543,12 +705,10 @@ const RunbookPage = () => {
         ))}
       </div>
 
-      {/* Desktop Gantt */}
       <div className="hidden md:block flex-1 bg-[var(--panel)] border border-[var(--border)] rounded-2xl p-4 overflow-y-auto">
         <RunbookGanttGrid tasks={tasks} dayIndex={activeDay} />
       </div>
 
-      {/* Mobile Kanban */}
       <MobileTaskList />
 
       {setupOpen && <SetupModal />}
@@ -594,36 +754,13 @@ const GuidePage = () => {
   Modals & Pages
 ----------------------------- */
 function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementMode; onClose: () => void; }) {
-  const d = useStore((s) => s.devices.find((x) => x.id === id));
-  const devices = useStore((s) => s.devices);
-  const setFlag = useStore((s) => s.setMigrationFlag);
-  const clearPlacement = useStore((s) => s.clearPlacement);
-  const updateDevice = useStore((s) => s.updateDevice);
-  const role = useStore((s) => s.role);
-  const lang = useStore((s) => s.lang);
-
-  if (!d) return null;
-  const isAccessory = d.category === "Accessory";
-
-  const [localNote, setLocalNote] = useState(d?.portMap || "");
-  const [localConns, setLocalConns] = useState<Connection[]>(d?.connections || []);
-
-  const [originalIncoming] = useState<{sourceDevId: string, conn: Connection}[]>(() => {
-    if (isAccessory) return [];
-    const inc: { sourceDevId: string, conn: Connection }[] = [];
-    devices.forEach(dev => { if (dev.id === id) return; dev.connections.forEach(c => { if (c.targetId === id) inc.push({ sourceDevId: dev.id, conn: c }); }); });
-    return inc;
-  });
-  
-  const [incomingConns, setIncomingConns] = useState([...originalIncoming]);
-  const [deletedIncoming, setDeletedIncoming] = useState<string[]>([]);
-
-  const beforePos = d.beforeRackId && d.beforeStartU != null && d.beforeEndU != null ? `${getRackName(d.beforeRackId, lang)} ${d.beforeStartU}-${d.beforeEndU}U` : "-";
-  const afterPos = d.afterRackId && d.afterStartU != null && d.afterEndU != null ? `${getRackName(d.afterRackId, lang)} ${d.afterStartU}-${d.afterEndU}U` : "-";
-  
-  const allowLayout = canManageAssets(role);
-  const allowEditPort = canEditPortMap(role);
-
+  const d = useStore((s) => s.devices.find((x) => x.id === id)); const devices = useStore((s) => s.devices); const setFlag = useStore((s) => s.setMigrationFlag); const clearPlacement = useStore((s) => s.clearPlacement); const updateDevice = useStore((s) => s.updateDevice); const role = useStore((s) => s.role); const lang = useStore((s) => s.lang);
+  if (!d) return null; const isAccessory = d.category === "Accessory";
+  const [localNote, setLocalNote] = useState(d?.portMap || ""); const [localConns, setLocalConns] = useState<Connection[]>(d?.connections || []);
+  const [originalIncoming] = useState<{sourceDevId: string, conn: Connection}[]>(() => { if (isAccessory) return []; const inc: { sourceDevId: string, conn: Connection }[] = []; devices.forEach(dev => { if (dev.id === id) return; dev.connections.forEach(c => { if (c.targetId === id) inc.push({ sourceDevId: dev.id, conn: c }); }); }); return inc; });
+  const [incomingConns, setIncomingConns] = useState([...originalIncoming]); const [deletedIncoming, setDeletedIncoming] = useState<string[]>([]);
+  const beforePos = d.beforeRackId && d.beforeStartU != null && d.beforeEndU != null ? `${getRackName(d.beforeRackId, lang)} ${d.beforeStartU}-${d.beforeEndU}U` : "-"; const afterPos = d.afterRackId && d.afterStartU != null && d.afterEndU != null ? `${getRackName(d.afterRackId, lang)} ${d.afterStartU}-${d.afterEndU}U` : "-";
+  const allowLayout = canManageAssets(role); const allowEditPort = canEditPortMap(role);
   const isModified = localNote !== (d.portMap || "") || JSON.stringify(localConns) !== JSON.stringify(d.connections || []) || JSON.stringify(incomingConns) !== JSON.stringify(originalIncoming) || deletedIncoming.length > 0;
 
   const addConn = () => setLocalConns(p => [...p, { id: crypto.randomUUID(), localPort: '', targetId: '', targetPort: '' }]);
@@ -634,34 +771,20 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
 
   const saveChanges = () => {
     updateDevice(d.id, { portMap: localNote.trimEnd(), connections: localConns });
-    incomingConns.forEach(inc => {
-      const sourceDev = useStore.getState().devices.find(x => x.id === inc.sourceDevId);
-      if (sourceDev) {
-        const newConns = sourceDev.connections.map(sc => sc.id === inc.conn.id ? inc.conn : sc);
-        if (JSON.stringify(sourceDev.connections) !== JSON.stringify(newConns)) useStore.getState().updateDevice(sourceDev.id, { connections: newConns });
-      }
-    });
-    deletedIncoming.forEach(connId => {
-      const sourceDev = useStore.getState().devices.find(x => x.connections.some(c => c.id === connId));
-      if (sourceDev) useStore.getState().updateDevice(sourceDev.id, { connections: sourceDev.connections.filter(c => c.id !== connId) });
-    });
+    incomingConns.forEach(inc => { const sourceDev = useStore.getState().devices.find(x => x.id === inc.sourceDevId); if (sourceDev) { const newConns = sourceDev.connections.map(sc => sc.id === inc.conn.id ? inc.conn : sc); if (JSON.stringify(sourceDev.connections) !== JSON.stringify(newConns)) useStore.getState().updateDevice(sourceDev.id, { connections: newConns }); } });
+    deletedIncoming.forEach(connId => { const sourceDev = useStore.getState().devices.find(x => x.connections.some(c => c.id === connId)); if (sourceDev) useStore.getState().updateDevice(sourceDev.id, { connections: sourceDev.connections.filter(c => c.id !== connId) }); });
   };
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
       <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-3xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col max-h-[90dvh]">
-        <div className="p-4 md:p-6 border-b border-[var(--border)] shrink-0 flex items-start justify-between gap-3">
-          <div className="min-w-0"><div className="text-xs text-[var(--muted)]">{t("detailTitle", lang)} {isAccessory && " (Accessory)"}</div><div className="text-lg md:text-xl font-black truncate text-[var(--text)]">{isAccessory ? d.name : d.deviceId + ' · ' + d.name}</div><div className="text-sm text-[var(--muted)] truncate">{isAccessory ? "-" : `${d.brand} / ${d.model} · ${d.ports} ports`} · {d.sizeU}U</div></div>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/5"><X /></button>
-        </div>
-        
+        <div className="p-4 md:p-6 border-b border-[var(--border)] shrink-0 flex items-start justify-between gap-3"><div className="min-w-0"><div className="text-xs text-[var(--muted)]">{t("detailTitle", lang)} {isAccessory && " (Accessory)"}</div><div className="text-lg md:text-xl font-black truncate text-[var(--text)]">{isAccessory ? d.name : d.deviceId + ' · ' + d.name}</div><div className="text-sm text-[var(--muted)] truncate">{isAccessory ? "-" : `${d.brand} / ${d.model} · ${d.ports} ports`} · {d.sizeU}U</div></div><button onClick={onClose} className="p-2 rounded-xl hover:bg-white/5"><X /></button></div>
         <div className="p-4 md:p-6 flex-1 overflow-y-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
             <div className="p-3 rounded-2xl border border-[var(--border)] bg-[var(--panel2)]"><div className="text-xs text-[var(--muted)]">{t("detailBefore", lang)}</div><div className="font-bold mt-1 text-[var(--text)]">{beforePos}</div></div>
             <div className="p-3 rounded-2xl border border-[var(--border)] bg-[var(--panel2)]"><div className="text-xs text-[var(--muted)]">{t("detailAfter", lang)}</div><div className="font-bold mt-1 text-[var(--text)]">{afterPos}</div></div>
             {!isAccessory && <div className="p-3 rounded-2xl border border-[var(--border)] bg-[var(--panel2)] md:col-span-2"><div className="text-xs text-[var(--muted)]">IP / SN</div><div className="mt-1 font-bold text-[var(--text)]">{d.ip || "-"} / {d.serial || "-"}</div></div>}
           </div>
-
           {!isAccessory && (
             <div className="mt-4 p-4 rounded-2xl border border-[var(--border)] bg-[var(--panel2)]">
               <div className="flex justify-between items-center mb-3"><div className="flex items-center gap-2 font-black text-[var(--text)]"><Link2 size={16} className="text-[var(--accent)]" /> {t("cableRouting", lang)} <span className="text-xs font-medium text-[var(--muted)] ml-2 border border-[var(--border)] px-2 py-0.5 rounded-full">{t("autoGenLabels", lang)}</span></div>{allowEditPort && <button type="button" onClick={addConn} className="text-xs bg-[var(--accent)] text-black px-3 py-1.5 rounded-lg font-bold hover:opacity-90 flex items-center gap-1"><Plus size={14} /> {t("addConnection", lang)}</button>}</div>
@@ -669,8 +792,7 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
                 <div className="space-y-4">
                   {localConns.map((c, i) => {
                     const target = devices.find(x => x.id === c.targetId); const targetName = target ? target.name : t("unknownDev", lang);
-                    const rId = mode === "before" ? d.beforeRackId : d.afterRackId; const u = mode === "before" ? d.beforeStartU : d.afterStartU;
-                    const trId = mode === "before" ? target?.beforeRackId : target?.afterRackId; const tu = mode === "before" ? target?.beforeStartU : target?.afterStartU;
+                    const rId = mode === "before" ? d.beforeRackId : d.afterRackId; const u = mode === "before" ? d.beforeStartU : d.afterStartU; const trId = mode === "before" ? target?.beforeRackId : target?.afterRackId; const tu = mode === "before" ? target?.beforeStartU : target?.afterStartU;
                     const myLabel = `${rId ? getRackName(rId, lang) : "-"}/${u||"-"}U/${d.name}/${c.localPort||"-"}`; const tLabel = `${trId ? getRackName(trId, lang) : "-"}/${tu||"-"}U/${targetName}/${c.targetPort||"-"}`;
                     return (
                       <div key={c.id} className="flex flex-col gap-2 bg-[var(--panel)] p-3 rounded-xl border border-[var(--border)] shadow-sm">
@@ -690,8 +812,7 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
                   })}
                   {incomingConns.map((inc, i) => {
                     const sourceDev = devices.find(x => x.id === inc.sourceDevId); const sourceName = sourceDev ? sourceDev.name : t("unknownDev", lang);
-                    const rId = mode === "before" ? d.beforeRackId : d.afterRackId; const u = mode === "before" ? d.beforeStartU : d.afterStartU;
-                    const trId = mode === "before" ? sourceDev?.beforeRackId : sourceDev?.afterRackId; const tu = mode === "before" ? sourceDev?.beforeStartU : sourceDev?.afterStartU;
+                    const rId = mode === "before" ? d.beforeRackId : d.afterRackId; const u = mode === "before" ? d.beforeStartU : d.afterStartU; const trId = mode === "before" ? sourceDev?.beforeRackId : sourceDev?.afterRackId; const tu = mode === "before" ? sourceDev?.beforeStartU : sourceDev?.afterStartU;
                     const myLabel = `${rId ? getRackName(rId, lang) : "-"}/${u||"-"}U/${d.name}/${inc.conn.targetPort||"-"}`; const tLabel = `${trId ? getRackName(trId, lang) : "-"}/${tu||"-"}U/${sourceName}/${inc.conn.localPort||"-"}`;
                     return (
                       <div key={inc.conn.id} className="flex flex-col gap-2 bg-[var(--panel)] p-3 rounded-xl border border-[var(--border)] shadow-sm">
@@ -713,14 +834,11 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
               )}
             </div>
           )}
-
           <div className="mt-4 p-4 rounded-2xl border border-[var(--border)] bg-[var(--panel2)]">
             <div className="flex items-center justify-between mb-2"><div className="text-xs font-bold text-[var(--text)]">{t("fNote", lang)}</div>{!allowEditPort && <div className="text-[10px] text-[var(--muted)] border border-[var(--border)] px-1 rounded bg-black/10">Vendor ({t("readOnly", lang)})</div>}</div>
             {allowEditPort ? <textarea className="w-full bg-[var(--panel)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)]" rows={2} value={localNote} onChange={e => setLocalNote(e.target.value)} /> : <div className="text-sm whitespace-pre-wrap break-words text-[var(--text)]">{d.portMap || "-"}</div>}
           </div>
-
           {allowEditPort && isModified && <div className="mt-3 flex justify-end"><button onClick={saveChanges} className="bg-[var(--accent)] text-black px-6 py-2 rounded-xl text-sm font-extrabold hover:opacity-90 shadow-lg flex items-center gap-2"><Save size={16} /> {t("btnSaveChanges", lang)}</button></div>}
-
           <div className="mt-4 p-4 rounded-2xl border border-[var(--border)] bg-[var(--panel2)]">
             <div className="flex items-center justify-between"><div className="font-black text-[var(--text)]">{t("detailStatus", lang)}</div><LampsRow m={d.migration} isAccessory={isAccessory} /></div>
             {isAccessory ? <div className="text-xs text-[var(--muted)] mt-3">{t("accessoryNoLamp", lang)}</div> : mode === "after" ? (
@@ -743,16 +861,11 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
 }
 
 function DeviceModal({ title, deviceId, initial, onClose, onSave }: { title: string; deviceId?: string | null; initial: DeviceDraft; onClose: () => void; onSave: (d: DeviceDraft) => void; }) {
-  const lang = useStore((s) => s.lang);
-  const devices = useStore((s) => s.devices);
-  const accOptions = getAccessoryOptions(lang);
-  const isAcc = initial.category === "Accessory";
-  const [d, setD] = useState<DeviceDraft>({ ...initial, connections: initial.connections || [] });
-  const input = (k: keyof DeviceDraft) => (e: any) => setD((p) => ({ ...p, [k]: e.target.value } as any));
+  const lang = useStore((s) => s.lang); const devices = useStore((s) => s.devices); const accOptions = getAccessoryOptions(lang); const isAcc = initial.category === "Accessory";
+  const [d, setD] = useState<DeviceDraft>({ ...initial, connections: initial.connections || [] }); const input = (k: keyof DeviceDraft) => (e: any) => setD((p) => ({ ...p, [k]: e.target.value } as any));
   const [localConns, setLocalConns] = useState<Connection[]>(d.connections);
   const [originalIncoming] = useState<{sourceDevId: string, conn: Connection}[]>(() => { if (isAcc || !deviceId) return []; const inc: { sourceDevId: string, conn: Connection }[] = []; devices.forEach(dev => { if (dev.id === deviceId) return; dev.connections.forEach(c => { if (c.targetId === deviceId) inc.push({ sourceDevId: dev.id, conn: c }); }); }); return inc; });
-  const [incomingConns, setIncomingConns] = useState([...originalIncoming]);
-  const [deletedIncoming, setDeletedIncoming] = useState<string[]>([]);
+  const [incomingConns, setIncomingConns] = useState([...originalIncoming]); const [deletedIncoming, setDeletedIncoming] = useState<string[]>([]);
   
   const handleAccSelect = (e: React.ChangeEvent<HTMLSelectElement>) => { const val = e.target.value; let autoU = 1; if (val.includes("2U")) autoU = 2; setD(p => ({ ...p, name: val, sizeU: autoU })); };
   const addConn = () => setLocalConns(p => [...p, { id: crypto.randomUUID(), localPort: '', targetId: '', targetPort: '' }]);
@@ -781,9 +894,7 @@ function DeviceModal({ title, deviceId, initial, onClose, onSave }: { title: str
             <div>
               <label className="text-xs text-[var(--muted)]">{t("fName", lang)}</label>
               {d.category === "Accessory" ? (
-                <select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)]" value={d.name} onChange={handleAccSelect}>
-                  <option value="" disabled>Select...</option>{accOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}{d.name && !accOptions.includes(d.name) && <option value={d.name}>{d.name} (Custom)</option>}
-                </select>
+                <select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)]" value={d.name} onChange={handleAccSelect}><option value="" disabled>Select...</option>{accOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}{d.name && !accOptions.includes(d.name) && <option value={d.name}>{d.name} (Custom)</option>}</select>
               ) : <input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)]" value={d.name} onChange={input("name")} />}
             </div>
             {d.category !== "Accessory" && (
@@ -842,205 +953,8 @@ function DeviceModal({ title, deviceId, initial, onClose, onSave }: { title: str
   );
 }
 
-function FullCSVImportModal({ onClose }: { onClose: () => void }) {
-  const importFullCSV = useStore((s) => s.importFullCSV); const lang = useStore((s) => s.lang); const [drag, setDrag] = useState(false);
-  const handleFile = async (file: File) => { const text = await file.text(); const res = importFullCSV(text); if (!res.ok) alert(res.message); else onClose(); };
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col max-h-[85dvh]">
-        <div className="p-6 shrink-0 border-b border-[var(--border)]"><div className="flex items-center justify-between"><div className="text-xl font-black text-[var(--text)]">{t("importCsv", lang)}</div><button onClick={onClose} className="p-2 rounded-xl hover:bg-white/5"><X /></button></div><div className="mt-3 text-sm text-[var(--muted)] text-red-400">{t("warningImport", lang)}</div><div className="mt-4 flex gap-2 flex-wrap"><button onClick={downloadFullCSVTemplate} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-[var(--text)]"><Download size={16} /> {t("template", lang)}</button></div></div>
-        <div className="p-6 flex-1 overflow-y-auto"><label onDragEnter={() => setDrag(true)} onDragLeave={() => setDrag(false)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); setDrag(false); const file = e.dataTransfer.files?.[0]; if (file) handleFile(file); }} className={`block w-full rounded-2xl border-2 border-dashed p-8 text-center cursor-pointer transition-all ${drag ? "border-[var(--accent)] bg-white/5" : "border-[var(--border)] bg-black/10"}`}><input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} /><div className="flex flex-col items-center gap-3"><div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: "linear-gradient(135deg,var(--accent),var(--accent2))" }}><Upload className="text-black" /></div><div className="font-black text-[var(--text)]">{t("dragHere", lang)}</div><div className="text-xs text-[var(--muted)]">{t("orClick", lang)}</div></div></label></div>
-      </motion.div>
-    </div>
-  );
-}
-
-function AppendCSVImportModal({ onClose }: { onClose: () => void }) {
-  const appendDevicesFromCSV = useStore((s) => s.appendDevicesFromCSV); const lang = useStore((s) => s.lang); const [drag, setDrag] = useState(false);
-  const handleFile = async (file: File) => { const text = await file.text(); const res = appendDevicesFromCSV(text); if (!res.ok) alert(res.message); else onClose(); };
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col max-h-[85dvh]">
-        <div className="p-6 shrink-0 border-b border-[var(--border)]"><div className="flex items-center justify-between"><div className="text-xl font-black flex items-center gap-2 text-[var(--accent)]"><FilePlus /> {t("appendCsv", lang)}</div><button onClick={onClose} className="p-2 rounded-xl hover:bg-white/5"><X /></button></div><div className="mt-3 text-sm text-[var(--text)]">{t("warningAppend", lang)}</div><div className="mt-4 flex gap-2 flex-wrap"><button onClick={downloadAppendCSVTemplate} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-[var(--text)]"><Download size={16} /> {t("template", lang)}</button></div></div>
-        <div className="p-6 flex-1 overflow-y-auto"><label onDragEnter={() => setDrag(true)} onDragLeave={() => setDrag(false)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); setDrag(false); const file = e.dataTransfer.files?.[0]; if (file) handleFile(file); }} className={`block w-full rounded-2xl border-2 border-dashed p-8 text-center cursor-pointer transition-all ${drag ? "border-[var(--accent)] bg-white/5" : "border-[var(--border)] bg-black/10"}`}><input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} /><div className="flex flex-col items-center gap-3"><div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: "linear-gradient(135deg,var(--accent2),var(--accent))" }}><Plus className="text-black" size={24} /></div><div className="font-black text-[var(--text)]">{t("dragHere", lang)}</div><div className="text-xs text-[var(--muted)]">{t("orClick", lang)}</div></div></label></div>
-      </motion.div>
-    </div>
-  );
-}
-
 /* -----------------------------
-  DevicesPage
------------------------------ */
-type SortKey = "category" | "deviceId" | "name" | "brand" | "model" | "ports" | "sizeU" | "before" | "after" | "migration" | "complete";
-type SortDir = "asc" | "desc";
-
-const DevicesPage = () => {
-  const devices = useStore((s) => s.devices); const addDevice = useStore((s) => s.addDevice); const updateDevice = useStore((s) => s.updateDevice); const deleteDeviceById = useStore((s) => s.deleteDeviceById); const clearPlacement = useStore((s) => s.clearPlacement); const role = useStore((s) => s.role); const lang = useStore((s) => s.lang);
-  const [isAdding, setIsAdding] = useState(false); const [editing, setEditing] = useState<Device | null>(null); const [importOpen, setImportOpen] = useState(false); const [appendOpen, setAppendOpen] = useState(false); const [sortKey, setSortKey] = useState<SortKey>("deviceId"); const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const allowManage = canManageAssets(role);
-
-  const sortToggle = (k: SortKey) => { if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc")); else { setSortKey(k); setSortDir("asc"); } };
-
-  const sorted = useMemo(() => {
-    const getBefore = (d: Device) => d.beforeRackId && d.beforeStartU != null ? `${getRackName(d.beforeRackId, lang)}-${d.beforeStartU}` : "";
-    const getAfter = (d: Device) => d.afterRackId && d.afterStartU != null ? `${getRackName(d.afterRackId, lang)}-${d.afterStartU}` : "";
-    const cmp = (a: any, b: any) => { if (a === b) return 0; if (a == null) return -1; if (b == null) return 1; if (typeof a === "number" && typeof b === "number") return a - b; return String(a).localeCompare(String(b)); };
-    return [...devices].sort((a, b) => {
-      let va: any; let vb: any;
-      switch (sortKey) { case "category": va=a.category; vb=b.category; break; case "deviceId": va=a.deviceId; vb=b.deviceId; break; case "name": va=a.name; vb=b.name; break; case "brand": va=a.brand; vb=b.brand; break; case "model": va=a.model; vb=b.model; break; case "ports": va=a.ports; vb=b.ports; break; case "sizeU": va=a.sizeU; vb=b.sizeU; break; case "before": va=getBefore(a); vb=getBefore(b); break; case "after": va=getAfter(a); vb=getAfter(b); break; case "migration": va=(a.migration.racked?1:0)+(a.migration.cabled?1:0)+(a.migration.powered?1:0)+(a.migration.tested?1:0); vb=(b.migration.racked?1:0)+(b.migration.cabled?1:0)+(b.migration.powered?1:0)+(b.migration.tested?1:0); break; case "complete": va=isMigratedComplete(a.migration)?1:0; vb=isMigratedComplete(b.migration)?1:0; break; default: va=a.deviceId; vb=b.deviceId; }
-      return sortDir === "asc" ? cmp(va, vb) : -cmp(va, vb);
-    });
-  }, [devices, sortKey, sortDir, lang]);
-
-  const Th = ({ k, children, right }: { k: SortKey | "action" | "connections", children: React.ReactNode; right?: boolean; }) => (
-    <th className={`px-4 py-4 font-semibold ${right ? "text-right" : ""}`}>{k === "action" || k === "connections" ? (<span className="whitespace-nowrap">{children}</span>) : (<button onClick={() => sortToggle(k)} className="inline-flex items-center gap-2 hover:text-[var(--accent)] whitespace-nowrap" title="Sort">{children} <span className="text-[10px] opacity-70">{sortKey === k ? (sortDir === "asc" ? "▲" : "▼") : ""}</span></button>)}</th>
-  );
-
-  return (
-    <div className="p-6">
-      <div className="flex flex-wrap gap-3 justify-between items-end mb-6"><div><h2 className="text-2xl font-black text-[var(--accent)]">{t("deviceList", lang)}</h2></div><div className="flex gap-2 flex-wrap"><button onClick={() => downloadCableLabelsCSV(devices, lang)} className="px-4 py-2 rounded-xl border border-[var(--border)] text-[var(--text)] hover:bg-[var(--accent2)] hover:text-black transition-colors flex items-center gap-2 font-bold bg-black/20"><Link2 size={16} /> {t("exportLabels", lang)}</button><button onClick={() => canExportCSV(role) && downloadFullCSV(devices)} className="px-4 py-2 rounded-xl border border-[var(--border)] text-[var(--text)] hover:bg-[var(--accent)] hover:text-black transition-colors flex items-center gap-2 font-bold"><Download size={16} /> {t("exportCsv", lang)}</button>{allowManage && (<><button onClick={() => setAppendOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--accent2)] text-[var(--accent2)] hover:bg-white/5 flex items-center gap-2 font-bold"><FilePlus size={16} /> {t("appendCsv", lang)}</button><button onClick={() => setImportOpen(true)} className="px-4 py-2 rounded-xl border border-[var(--border)] text-[var(--muted)] hover:bg-white/5 flex items-center gap-2 text-xs"><Upload size={14} /> {t("importCsv", lang)}</button><button onClick={() => setIsAdding(true)} className="bg-[var(--accent)] text-black px-4 py-2 rounded-xl font-extrabold flex items-center gap-2 hover:opacity-90"><Plus size={18} /> {t("addDevice", lang)}</button></>)}</div></div>
-      <div className="bg-[var(--panel)] border border-[var(--border)] rounded-2xl overflow-hidden overflow-x-auto shadow-2xl">
-        <table className="w-full text-left">
-          <thead className="bg-black/20 text-[var(--muted)] text-xs uppercase tracking-wider"><tr><Th k="category">{t("cat", lang)}</Th><Th k="deviceId">{t("devId", lang)}</Th><Th k="name">{t("name", lang)}</Th><Th k="brand">{t("brand", lang)}</Th><Th k="model">{t("model", lang)}</Th><Th k="ports">{t("ports", lang)}</Th><Th k="sizeU">{t("sizeU", lang)}</Th><Th k="connections">🔗</Th><Th k="before">{t("before", lang)}</Th><Th k="after">{t("after", lang)}</Th><Th k="migration">{t("status", lang)}</Th><Th k="complete">{t("done", lang)}</Th><Th k="action" right>{t("action", lang)}</Th></tr></thead>
-          <tbody className="divide-y divide-[var(--border)]">
-            {sorted.map((d) => {
-              const before = d.beforeRackId && d.beforeStartU != null ? `${getRackName(d.beforeRackId, lang)} ${d.beforeStartU}-${d.beforeEndU}U` : "-"; const after = d.afterRackId && d.afterStartU != null ? `${getRackName(d.afterRackId, lang)} ${d.afterStartU}-${d.afterEndU}U` : "-"; const done = isMigratedComplete(d.migration); const isAcc = d.category === "Accessory";
-              const connCount = (d.connections?.length || 0) + devices.filter(dev => dev.id !== d.id && dev.connections.some(c => c.targetId === d.id)).reduce((acc, dev) => acc + dev.connections.filter(c => c.targetId === d.id).length, 0);
-              return (
-                <tr key={d.id} className="hover:bg-white/[0.02] transition-colors group text-[var(--text)]">
-                  <td className="px-4 py-4 whitespace-nowrap"><span className="text-[10px] font-extrabold px-2 py-1 rounded-md border whitespace-nowrap" style={{ color: "var(--onColor)", borderColor: "rgba(255,255,255,0.35)", backgroundColor: catColor(d.category) }}>{d.category}</span></td><td className="px-4 py-4 whitespace-nowrap"><div className="font-black text-sm whitespace-nowrap">{isAcc ? "-" : d.deviceId}</div></td><td className="px-4 py-4 whitespace-nowrap"><button onClick={() => useStore.getState().setSelectedDeviceId(d.id)} className="text-sm text-[var(--muted)] hover:text-[var(--accent)] font-semibold whitespace-nowrap" title="Detail">{d.name}</button></td><td className="px-4 py-4 text-xs whitespace-nowrap">{isAcc ? "-" : d.brand}</td><td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{isAcc ? "-" : d.model}</td><td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{isAcc ? "-" : d.ports}</td><td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{d.sizeU}U</td>
-                  <td className="px-4 py-4 whitespace-nowrap">{connCount > 0 ? (<span className="text-[10px] font-bold px-2 py-0.5 rounded border border-[var(--accent)] text-[var(--accent)] bg-black/20">🔗 {connCount}</span>) : <span className="text-xs text-[var(--muted)]">-</span>}</td>
-                  <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{before}</td><td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{after}</td><td className="px-4 py-4 whitespace-nowrap">{isAcc ? <span className="text-[10px] text-[var(--muted)]">-</span> : <LampsRow m={d.migration} />}</td><td className="px-4 py-4 whitespace-nowrap">{isAcc ? <span className="text-[10px] text-[var(--muted)]">-</span> : <span className="text-xs font-extrabold px-2 py-1 rounded-lg border" style={{ borderColor: done ? "rgba(0,255,0,0.45)" : "rgba(255,0,0,0.45)", color: done ? "rgb(0,255,0)" : "rgb(255,0,0)", background: done ? "rgba(0,255,0,0.06)" : "rgba(255,0,0,0.06)" }}>{done ? t("statusDone", lang) : t("statusUndone", lang)}</span>}</td>
-                  <td className="px-4 py-4 text-right whitespace-nowrap">{allowManage ? (<div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => setEditing(d)} className="p-2 hover:bg-white/10 rounded-lg text-[var(--accent)]"><Edit3 size={16} /></button><button onClick={() => { clearPlacement("before", d.id); clearPlacement("after", d.id); }} className="px-3 py-2 rounded-lg border border-[var(--border)] text-[var(--text)] text-xs hover:bg-white/5 whitespace-nowrap">{t("btnClear", lang)}</button><button onClick={() => { if (confirm(`Delete ${d.deviceId || d.name}?`)) deleteDeviceById(d.id); }} className="p-2 hover:bg-white/10 rounded-lg text-red-400"><Trash2 size={16} /></button></div>) : (<div className="text-xs text-[var(--muted)]">-</div>)}</td>
-                </tr>
-              );
-            })}
-            {sorted.length === 0 && (<tr><td colSpan={13} className="px-6 py-10 text-center text-[var(--muted)]">{t("noDevices", lang)}</td></tr>)}
-          </tbody>
-        </table>
-      </div>
-      {importOpen && <FullCSVImportModal onClose={() => setImportOpen(false)} />}{appendOpen && <AppendCSVImportModal onClose={() => setAppendOpen(false)} />}{isAdding && (<DeviceModal title={t("addDeviceTitle", lang)} initial={{ category: "Other", deviceId: "", name: "", brand: "", model: "", ports: 8, sizeU: 1, ip: "", serial: "", portMap: "", connections: [] }} onClose={() => setIsAdding(false)} onSave={(d) => { addDevice(d); setIsAdding(false); }} />)}{editing && (<DeviceModal title={t("editDeviceTitle", lang)} deviceId={editing.id} initial={{ category: editing.category, deviceId: editing.deviceId, name: editing.name, brand: editing.brand, model: editing.model, ports: editing.ports, sizeU: editing.sizeU, ip: editing.ip ?? "", serial: editing.serial ?? "", portMap: editing.portMap ?? "", connections: editing.connections ?? [] }} onClose={() => setEditing(null)} onSave={(d) => { updateDevice(editing.id, d); setEditing(null); }} />)}
-    </div>
-  );
-};
-
-function HoverCard({ x, y, d, beforePos, afterPos }: { x: number; y: number; d: Device; beforePos: string; afterPos: string; }) {
-  const lang = useStore((s) => s.lang); const isAcc = d.category === "Accessory";
-  return (
-    <div className="fixed z-[9999] pointer-events-none" style={{ left: x + 16, top: y + 16 }}>
-      <div className="rounded-2xl border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.5)] w-[320px] p-4 text-left text-white" style={{ backgroundColor: "rgba(15, 23, 42, 0.75)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
-        <div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="text-[10px] text-gray-300 font-medium">{t("hoverInfo", lang)} {isAcc && "(Acc)"}</div><div className="font-black text-sm truncate text-white">{isAcc ? d.name : d.deviceId + " · " + d.name}</div><div className="text-[11px] text-gray-300 truncate mt-0.5">{isAcc ? "-" : `${d.brand} / ${d.model}`} · {d.sizeU}U {isAcc ? "" : `· ${d.ports} ports`}</div></div><div className="pt-1">{!isAcc && <LampsRow m={d.migration} />}</div></div>
-        <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div className="rounded-xl border border-white/10 bg-white/10 p-2"><div className="text-[10px] text-gray-400">{t("hoverBefore", lang)}</div><div className="font-bold truncate text-white">{beforePos}</div></div><div className="rounded-xl border border-white/10 bg-white/10 p-2"><div className="text-[10px] text-gray-400">{t("hoverAfter", lang)}</div><div className="font-bold truncate text-white">{afterPos}</div></div></div>
-        {!isAcc && <div className="mt-3 text-[11px] text-gray-400 truncate">IP：{d.ip || "-"}　SN：{d.serial || "-"}</div>}
-      </div>
-    </div>
-  );
-}
-
-function UnplacedPanel({ mode, unplaced, collapsed, setCollapsed, allowLayout }: { mode: PlacementMode; unplaced: Device[]; collapsed: boolean; setCollapsed: (v: boolean) => void; allowLayout: boolean; }) {
-  const setDraggingDevice = useStore(s => s.setDraggingDevice); const lang = useStore(s => s.lang);
-  useEffect(() => { if (unplaced.length === 0 && !collapsed) setCollapsed(true); }, [unplaced.length]);
-  const isSticky = unplaced.length > 0 && !collapsed;
-  return (
-    <div className={`border border-[var(--border)] rounded-2xl shadow-2xl overflow-hidden mb-6 transition-all duration-300 ${isSticky ? "sticky top-[80px] z-[40] bg-[var(--panel)]/95 backdrop-blur-xl" : "bg-[var(--panel)]"}`}>
-      <div className="p-4 border-b border-[var(--border)] flex items-center justify-between"><div className="flex items-center gap-3"><div className="font-black text-[var(--text)]">{t("unplaced", lang)}</div><div className="text-xs text-[var(--muted)]">{unplaced.length === 0 ? t("allPlaced", lang) : `${unplaced.length}`}</div></div><button onClick={() => setCollapsed(!collapsed)} className="px-3 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-sm text-[var(--text)]">{collapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}</button></div>
-      {!collapsed && (<div className="p-4">{unplaced.length > 0 ? (<div className="flex gap-3 overflow-x-auto pb-2">{unplaced.map((d) => { const isAcc = d.category === "Accessory"; return (<div key={d.id} draggable={allowLayout} onDragStart={(ev) => { if (!allowLayout) return; ev.dataTransfer.setData("text/plain", d.id); setDraggingDevice(d); ev.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => setDraggingDevice(null)} className={`min-w-[240px] p-3 rounded-xl shadow-md border border-white/10 transition-all ${allowLayout ? "cursor-grab active:cursor-grabbing hover:brightness-110 hover:scale-[1.02]" : "cursor-not-allowed opacity-90"}`} style={{ backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.15) 100%)", color: "white" }} title={allowLayout ? t("dragToRack", lang) : t("noDrag", lang)}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="text-sm font-black truncate drop-shadow-md">{isAcc ? d.name : d.deviceId}</div>{!isAcc && <div className="text-xs font-semibold opacity-90 truncate drop-shadow-sm mt-0.5">{d.name}</div>}<div className="text-[10px] opacity-80 mt-1.5 truncate drop-shadow-sm">{isAcc ? "-" : `${d.brand} · ${d.model}`} · {d.sizeU}U</div></div><div className="pt-1 bg-black/20 p-1 rounded-md shadow-inner">{isAcc ? <div className="text-[10px] px-1 opacity-70">Acc</div> : <LampsRow m={d.migration} />}</div></div></div>); })}</div>) : (<div className="text-sm text-[var(--muted)]">{t("noUnplaced", lang)}</div>)}</div>)}
-    </div>
-  );
-}
-
-function AddAndPlaceModal({ mode, rackId, u, onClose }: { mode: PlacementMode; rackId: string; u: number; onClose: () => void; }) {
-  const role = useStore((s) => s.role); const lang = useStore((s) => s.lang); const addDevice = useStore((s) => s.addDevice); const place = useStore((s) => s.place);
-  if (role !== "admin") return null;
-  return <DeviceModal title={`${t("addPlaceTitle", lang)}：${getRackName(rackId, lang)} / ${u}U`} initial={{ category: "Other", deviceId: "", name: "", brand: "", model: "", ports: 8, sizeU: 1, ip: "", serial: "", portMap: "", connections: [] }} onClose={onClose} onSave={(d) => { const id = addDevice(d); const res = place(mode, id, rackId, u); if (!res.ok) alert(res.message); onClose(); }} />;
-}
-
-/* -----------------------------
-  Rack Planner 
------------------------------ */
-const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
-  const racks = useStore((s) => (mode === "before" ? s.beforeRacks : s.afterRacks)); const devices = useStore((s) => s.devices); const place = useStore((s) => s.place); const clearPlacement = useStore((s) => s.clearPlacement); const setSelectedDeviceId = useStore((s) => s.setSelectedDeviceId); const ui = useStore((s) => s.ui); const setUi = useStore((s) => s.setUi); const repairRackIds = useStore((s) => s.repairRackIds); const role = useStore((s) => s.role); const lang = useStore((s) => s.lang); const draggingDevice = useStore((s) => s.draggingDevice); const setDraggingDevice = useStore((s) => s.setDraggingDevice);
-  const allowLayout = canManageAssets(role);
-  const [hoverInfo, setHoverInfo] = useState<{ x: number; y: number; d: Device; beforePos: string; afterPos: string } | null>(null); const [hoverId, setHoverId] = useState<string | null>(null); const [addPlace, setAddPlace] = useState<{ rackId: string; u: number } | null>(null); const [dragHover, setDragHover] = useState<{ rackId: string, u: number } | null>(null);
-  useEffect(() => { repairRackIds(); }, [mode]);
-
-  const rackIdSet = useMemo(() => new Set(racks.map((r) => r.id)), [racks]);
-  const unplaced = useMemo(() => devices.filter((d) => { const rid = mode === "before" ? d.beforeRackId : d.afterRackId; const s = mode === "before" ? d.beforeStartU : d.afterStartU; const e = mode === "before" ? d.beforeEndU : d.afterEndU; return !(!!rid && rackIdSet.has(rid) && s != null && e != null); }), [devices, rackIdSet, mode]);
-  const collapsed = mode === "before" ? ui.unplacedCollapsedBefore : ui.unplacedCollapsedAfter; const setCollapsed = (v: boolean) => setUi(mode === "before" ? { unplacedCollapsedBefore: v } : { unplacedCollapsedAfter: v });
-
-  const rackRows = useMemo(() => {
-    if (mode === "before") {
-      const map = new Map(racks.map((r) => [r.name || r.id.replace("BEF_",""), r]));
-      return [ ["10", "09", "08", "07", "06"], ["05", "04", "03", "02", "01"], ["2F-A", "2F-B", "3F-A", "3F-B", "4F-A", "4F-B"], ["9F", "SmartHouseA", "SmartHouseB", "New_Device"] ].map((row) => row.map((name) => map.get(name)!).filter(Boolean));
-    }
-    const out: Rack[][] = []; let cur: Rack[] = []; racks.forEach((r) => { cur.push(r); if (cur.length === 6) { out.push(cur); cur = []; } }); if (cur.length) out.push(cur); return out;
-  }, [racks, mode]);
-
-  const listForRack = (rackId: string) => devices.filter((d) => (mode === "before" ? d.beforeRackId === rackId : d.afterRackId === rackId)).filter((d) => { const s = mode === "before" ? d.beforeStartU : d.afterStartU; const e = mode === "before" ? d.beforeEndU : d.afterEndU; return s != null && e != null; }).sort((a, b) => { const as = (mode === "before" ? a.beforeStartU : a.afterStartU) ?? 999; const bs = (mode === "before" ? b.beforeStartU : b.afterStartU) ?? 999; return as - bs; });
-  const getBlockStyle = (d: Device) => { const sU = (mode === "before" ? d.beforeStartU : d.afterStartU) ?? 1; const eU = (mode === "before" ? d.beforeEndU : d.afterEndU) ?? sU; const start = clampU(Math.min(sU, eU)); const end = clampU(Math.max(sU, eU)); return { bottom: (start - 1) * 22, height: (end - start + 1) * 22 }; };
-  const findDeviceAtU = (rackId: string, u: number) => { return devices.find((d) => { const rId = mode === "before" ? d.beforeRackId : d.afterRackId; const s = mode === "before" ? d.beforeStartU : d.afterStartU; const e = mode === "before" ? d.beforeEndU : d.afterEndU; if (rId !== rackId || s == null || e == null) return false; return u >= Math.min(s, e) && u <= Math.max(s, e); }); };
-
-  return (
-    <div className="p-6 relative">
-      <div className="flex flex-wrap items-start md:items-center justify-between gap-4 mb-6">
-        <div><h2 className="text-2xl font-black flex items-center gap-3 text-[var(--text)]"><ArrowRightLeft className="text-[var(--accent)]" /> {mode === "before" ? t("navBefore", lang) : t("navAfter", lang)}</h2></div>
-        <div className="flex gap-3 bg-[var(--panel)] p-2.5 rounded-xl border border-[var(--border)] shadow-sm text-xs font-bold shrink-0 flex-wrap text-[var(--text)]"><div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Network }}></div> Network</div><div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Server }}></div> Server</div><div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Storage }}></div> Storage</div><div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Accessory }}></div> Accessory</div><div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-sm shadow-inner" style={{ backgroundColor: FIXED_COLORS.Other }}></div> Other</div></div>
-      </div>
-      <UnplacedPanel mode={mode} unplaced={unplaced} collapsed={collapsed} setCollapsed={setCollapsed} allowLayout={allowLayout} />
-      <div className="space-y-8 overflow-hidden">
-        {rackRows.map((row, idx) => (
-          <div key={idx} className="flex gap-6 overflow-x-auto pb-4 items-start snap-x">
-            {row.map((rack) => {
-              const displayName = getRackName(rack.id, lang); const isRed = rack.id.includes("Unmoved") || rack.id.includes("New_Device");
-              return (
-                <div key={rack.id} className="flex flex-col bg-[var(--panel)] rounded-xl shadow-lg border border-[var(--border)] overflow-hidden flex-shrink-0 snap-center min-w-[340px] md:min-w-[400px]">
-                  <div className={`px-4 py-2 ${mode === "after" && isRed ? "bg-red-800" : mode === "before" && isRed ? "bg-red-800" : mode === "after" ? "bg-emerald-600" : "bg-slate-800"} text-white flex justify-between items-center`}><h2 className="font-bold text-sm flex items-center gap-2 truncate text-white"><Server size={16} />{displayName}</h2><span className="text-[10px] bg-white/20 px-2 py-0.5 rounded whitespace-nowrap text-white">42U</span></div>
-                  <div className="flex-1 overflow-y-hidden p-4 bg-[var(--panel2)] flex justify-center">
-                    <div className="relative w-full border-x-[12px] border-t-[12px] border-slate-400 dark:border-slate-600 bg-slate-900 rounded-t-lg shadow-inner mb-4" style={{ height: 42 * 22 }}>
-                      <div className="absolute left-0 top-0 bottom-0 w-7 sm:w-8 bg-yellow-400/90 border-r border-slate-800 z-0" />
-                      {Array.from({ length: 42 }).map((_, i) => {
-                        const u = i + 1; const bottomPos = i * 22; const isHoverTarget = allowLayout && dragHover?.rackId === rack.id && u >= dragHover.u && u < dragHover.u + (draggingDevice?.sizeU || 1);
-                        return (
-                          <React.Fragment key={`grid-${u}`}>
-                            <div className="absolute left-0 w-7 sm:w-8 flex items-center justify-center text-slate-900 text-[8px] font-bold z-0" style={{ bottom: bottomPos, height: 22 }}>{u}</div>
-                            <div className="absolute left-7 sm:left-8 right-0 z-0 group cursor-pointer" style={{ bottom: bottomPos, height: 22 }} onDragOver={(e) => { allowLayout && e.preventDefault(); if (allowLayout && (dragHover?.rackId !== rack.id || dragHover?.u !== u)) setDragHover({ rackId: rack.id, u }); }} onDragLeave={() => { if (allowLayout && dragHover?.rackId === rack.id && dragHover?.u === u) setDragHover(null); }} onDrop={(e) => { e.preventDefault(); setDragHover(null); if (!allowLayout) return; const id = e.dataTransfer.getData("text/plain"); if (!id) return; const res = place(mode, id, rack.id, u); setDraggingDevice(null); if (!res.ok) alert(res.message); }} onClick={() => { const found = findDeviceAtU(rack.id, u); if (found) setSelectedDeviceId(found.id); else if (role === "admin") setAddPlace({ rackId: rack.id, u }); }}>
-                              <div className={`absolute inset-0 transition-colors ${isHoverTarget ? "bg-[var(--accent)]/40 border-y border-[var(--accent)] z-20" : "hover:bg-white/[0.05]"}`} />
-                            </div>
-                            {u < 42 && (<div className={`absolute left-7 sm:left-8 right-0 z-0 pointer-events-none ${u % 5 === 0 ? "bg-slate-500/80 h-[2px]" : "bg-slate-700/50 h-[1px]"}`} style={{ bottom: bottomPos + 22 }} />)}
-                          </React.Fragment>
-                        );
-                      })}
-                      <div className="absolute left-7 sm:left-8 right-0 top-0 bottom-0 pointer-events-none z-10">
-                        {listForRack(rack.id).map((d) => {
-                          const { bottom, height } = getBlockStyle(d); const isHovered = hoverId === d.id; const isAcc = d.category === "Accessory";
-                          return (
-                            <div key={d.id} draggable={allowLayout} onDragStart={(ev) => { if (!allowLayout) return; ev.dataTransfer.setData("text/plain", d.id); setDraggingDevice(d); ev.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => setDraggingDevice(null)} onClick={() => setSelectedDeviceId(d.id)} onMouseMove={(e) => { setHoverId(d.id); setHoverInfo({ x: e.clientX, y: e.clientY, d, beforePos: d.beforeRackId && d.beforeStartU != null && d.beforeEndU != null ? `${getRackName(d.beforeRackId, lang)} ${d.beforeStartU}-${d.beforeEndU}U` : "-", afterPos: d.afterRackId && d.afterStartU != null && d.afterEndU != null ? `${getRackName(d.afterRackId, lang)} ${d.afterStartU}-${d.afterEndU}U` : "-" }); }} onMouseLeave={() => { setHoverId(null); setHoverInfo(null); }} className={`absolute left-[2px] right-[2px] rounded flex flex-row items-center px-2 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] transition-all pointer-events-auto overflow-hidden ${isHovered ? "brightness-125 scale-[1.01] z-20 shadow-[0_0_15px_rgba(56,189,248,0.4)]" : "z-10"}`} style={{ bottom: bottom + 1, height: height - 2, backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.2) 100%)", cursor: allowLayout ? "grab" : "pointer" }}>
-                              <div className="flex-1 h-full flex flex-col justify-center min-w-0 pr-14 drop-shadow-md">
-                                {isAcc ? (<div className="truncate w-full font-bold text-[10px] sm:text-[11px] leading-tight">{d.name}</div>) : d.sizeU >= 2 ? (<><div className="truncate w-full font-bold text-[10px] sm:text-[11px] leading-tight tracking-wide">{d.deviceId} | {d.name}</div><div className="truncate w-full text-[9px] sm:text-[10px] opacity-90 font-medium leading-tight mt-0.5">{d.brand} | {d.model}</div></>) : (<div className="truncate w-full font-bold text-[9px] sm:text-[10px] leading-tight">{d.deviceId} | {d.name} | {d.model}</div>)}
-                              </div>
-                              {!isAcc && (<div className="absolute bottom-1 right-1 flex items-center bg-black/40 px-1 py-[2px] rounded shadow-inner pointer-events-none scale-[0.7] sm:scale-[0.8] origin-bottom-right"><LampsRow m={d.migration} /></div>)}
-                              {allowLayout && isHovered && (<button onClick={(e) => { e.stopPropagation(); clearPlacement(mode, d.id); setHoverId(null); setHoverInfo(null); }} className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-red-500 text-white shadow-lg hover:bg-red-400 z-30 pointer-events-auto scale-75"><X size={12} /></button>)}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <div className="absolute -bottom-4 left-[-12px] right-[-12px] h-4 bg-slate-500 dark:bg-slate-700 rounded-b-sm shadow-md"></div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-      {addPlace && <AddAndPlaceModal mode={mode} rackId={addPlace.rackId} u={addPlace.u} onClose={() => setAddPlace(null)} />}
-      {hoverInfo && <HoverCard {...hoverInfo} />}
-    </div>
-  );
-};
-
-/* -----------------------------
-  ★ Navbar Icons & Layout
+  Main Application Layout
 ----------------------------- */
 export default function App() {
   useApplyTheme();

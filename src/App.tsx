@@ -87,7 +87,7 @@ type Device = {
 
 type DeviceDraft = Omit<Device, "id" | "beforeRackId" | "beforeStartU" | "beforeEndU" | "afterRackId" | "afterStartU" | "afterEndU" | "migration">;
 
-// ★ 問題回報資料結構
+// 問題回報資料結構
 type IssueReply = { id: string; text: string; author: string; createdAt: number; };
 type IssueStatus = "open" | "resolved";
 type Issue = { id: string; title: string; description: string; author: string; createdAt: number; status: IssueStatus; replies: IssueReply[]; };
@@ -137,10 +137,10 @@ const DICT = {
     expand: "展開", collapse: "收合", dragToRack: "提示：把設備拖到機櫃", noDrag: "唯讀：只能查看/切換搬遷後燈號，不能拖放", noUnplaced: "✅ 沒有未放置設備", langToggle: "繁中",
     cableRouting: "智慧線路對接表", autoGenLabels: "動態標籤預覽", addConnection: "新增對接",
     localPort: "本機 Port", targetDevice: "目標設備", selectDevice: "選擇目標設備...", targetPort: "目標 Port", unknownDev: "未知設備",
+    outgoingConn: "➡️ 主動連出", incomingConn: "⬅️ 來自他台",
     lblSrcDev: "來源設備", lblTgtDev: "目的設備", lblBefSrc: "搬遷前-來源標籤", lblBefTgt: "搬遷前-目的標籤", lblAftSrc: "搬遷後-來源標籤", lblAftTgt: "搬遷後-目的標籤",
     rackNewDevice: "新購設備存放區", rackUnmovedA: "不搬存放區A", rackUnmovedB: "不搬存放區B", rackUnmovedC: "搬遷不上架存放區", rackSmartHouse: "SmartHouse 20F",
     accCable1U: "1U 理線槽", accCable2U: "2U 理線槽", accBlank1U: "1U 盲板", accBlank2U: "2U 盲板", accShelf1U: "1U 層板", accShelf2U: "2U 層板", accPdu1U: "1U 電源排插", accPdu2U: "2U 電源排插", accFan1U: "1U 散熱風扇組", accKvm1U: "1U KVM 抽屜",
-    // Issues
     issuesTitle: "問題回報與追蹤", addIssue: "回報新問題", issueTitle: "問題標題", issueDesc: "問題描述", issueSubmit: "送出回報", issueOpen: "未解決", issueResolved: "已解決", issueReplies: "則回覆", replyText: "輸入您的回覆...", replySubmit: "留言", markResolved: "標記為已解決", reopenIssue: "重新開啟", deleteIssue: "刪除案件", author: "發布者", time: "時間", noIssues: "目前沒有任何回報問題，一切順利！"
   },
   en: {
@@ -172,6 +172,7 @@ const DICT = {
     expand: "Expand", collapse: "Collapse", dragToRack: "Tip: Drag devices to the rack", noDrag: "Read-only", noUnplaced: "✅ No unplaced devices", langToggle: "EN",
     cableRouting: "Smart Cable Routing", autoGenLabels: "Label Preview", addConnection: "Add Link",
     localPort: "Local Port", targetDevice: "Target Device", selectDevice: "Select Device...", targetPort: "Target Port", unknownDev: "Unknown Device",
+    outgoingConn: "➡️ Outgoing", incomingConn: "⬅️ Incoming",
     lblSrcDev: "Source Device", lblTgtDev: "Target Device", lblBefSrc: "Before: Source Lbl", lblBefTgt: "Before: Target Lbl", lblAftSrc: "After: Source Lbl", lblAftTgt: "After: Target Lbl",
     rackNewDevice: "New Device Area", rackUnmovedA: "Unmoved Area A", rackUnmovedB: "Unmoved Area B", rackUnmovedC: "Unmoved Area C", rackSmartHouse: "SmartHouse 20F",
     accCable1U: "1U Cable Manager", accCable2U: "2U Cable Manager", accBlank1U: "1U Blanking Panel", accBlank2U: "2U Blanking Panel", accShelf1U: "1U Fixed Shelf", accShelf2U: "2U Fixed Shelf", accPdu1U: "1U PDU", accPdu2U: "2U PDU", accFan1U: "1U Fan Unit", accKvm1U: "1U KVM Console",
@@ -206,6 +207,7 @@ const DICT = {
     expand: "펼치기", collapse: "접기", dragToRack: "랙으로 드래그", noDrag: "읽기 전용", noUnplaced: "✅ 미배치 장치 없음", langToggle: "한국어",
     cableRouting: "스마트 케이블 라우팅", autoGenLabels: "라벨 미리보기", addConnection: "연결 추가",
     localPort: "로컬 포트", targetDevice: "대상 장치", selectDevice: "장치 선택...", targetPort: "대상 포트", unknownDev: "알 수 없는 장치",
+    outgoingConn: "➡️ 발신 연결", incomingConn: "⬅️ 수신 연결",
     lblSrcDev: "소스 장치", lblTgtDev: "대상 장치", lblBefSrc: "이전전: 소스 라벨", lblBefTgt: "이전전: 대상 라벨", lblAftSrc: "이전후: 소스 라벨", lblAftTgt: "이전후: 대상 라벨",
     rackNewDevice: "신규 장치 구역", rackUnmovedA: "미이전 구역 A", rackUnmovedB: "미이전 구역 B", rackUnmovedC: "미이전 구역 C", rackSmartHouse: "SmartHouse 20F",
     accCable1U: "1U 케이블 매니저", accCable2U: "2U 케이블 매니저", accBlank1U: "1U 블랭킹 패널", accBlank2U: "2U 블랭킹 패널", accShelf1U: "1U 선반", accShelf2U: "2U 선반", accPdu1U: "1U PDU", accPdu2U: "2U PDU", accFan1U: "1U 팬 유닛", accKvm1U: "1U KVM 콘솔",
@@ -268,16 +270,21 @@ const syncToCloud = async (patch: any) => {
   try { const cleanPatch = JSON.parse(JSON.stringify(patch)); await setDoc(doc(db, "migratePro", "mainState"), cleanPatch, { merge: true }); } catch (e) {}
 };
 
+// ★ CSV 檔名加入時間戳記
 const getTimestamp = () => {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
 };
 
-const formatDate = (ts: number) => new Date(ts).toLocaleString();
+const formatDate = (ts: number) => {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 
 /* -----------------------------
-  CSV 工具函式 (加入精確時間戳)
+  CSV 工具函式 
 ----------------------------- */
 const escapeCSV = (str: string | number | undefined | null) => {
   if (str == null) return "";
@@ -298,7 +305,8 @@ const downloadFullCSV = (devices: Device[]) => {
 
   const csvContent = "\uFEFF" + [CSV_HEADER, ...rows].join("\n");
   const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
-  const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", `MigratePro_FullBackup_${getTimestamp()}.csv`);
+  const link = document.createElement("a"); link.setAttribute("href", encodedUri); 
+  link.setAttribute("download", `MigratePro_FullBackup_${getTimestamp()}.csv`); // ★ 動態時間戳
   document.body.appendChild(link); link.click(); document.body.removeChild(link);
 };
 
@@ -323,7 +331,8 @@ const downloadCableLabelsCSV = (devices: Device[], lang: Lang) => {
 
   const csvContent = "\uFEFF" + rows.join("\n");
   const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
-  const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", `CableLabels_${getTimestamp()}.csv`);
+  const link = document.createElement("a"); link.setAttribute("href", encodedUri); 
+  link.setAttribute("download", `CableLabels_${getTimestamp()}.csv`);
   document.body.appendChild(link); link.click(); document.body.removeChild(link);
 };
 
@@ -427,7 +436,7 @@ interface Store {
   beforeRacks: Rack[];
   afterRacks: Rack[];
   devices: Device[];
-  issues: Issue[]; // ★ 問題回報資料庫
+  issues: Issue[];
 
   theme: ThemeMode;
   themeStyle: ThemeStyle;
@@ -469,7 +478,6 @@ interface Store {
   setMigrationFlag: (id: string, patch: Partial<MigrationFlags>) => void;
   repairRackIds: () => void;
 
-  // Issues Actions
   addIssue: (title: string, desc: string) => void;
   updateIssueStatus: (id: string, status: IssueStatus) => void;
   deleteIssue: (id: string) => void;
@@ -662,7 +670,6 @@ const useStore = create<Store>((set, get) => ({
     writeJson(LS.devices, repaired); syncToCloud({ devices: repaired, issues: s.issues }); return { devices: repaired };
   }),
 
-  // ★ Issues Actions
   addIssue: (title, description) => set((s) => {
     const newIssue: Issue = { id: crypto.randomUUID(), title, description, author: s.userName || "Unknown", createdAt: Date.now(), status: "open", replies: [] };
     const next = [newIssue, ...s.issues];
@@ -723,7 +730,7 @@ function Switch({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean
 }
 
 /* -----------------------------
-  ★ Device Detail Modal (支援直接編輯線路與備註)
+  ★ Device Detail Modal (UI 動態反向連動)
 ----------------------------- */
 function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementMode; onClose: () => void; }) {
   const d = useStore((s) => s.devices.find((x) => x.id === id));
@@ -733,21 +740,42 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
   const updateDevice = useStore((s) => s.updateDevice);
   const role = useStore((s) => s.role);
   const lang = useStore((s) => s.lang);
-  
+
+  if (!d) return null;
+  const isAccessory = d.category === "Accessory";
+
+  // Outbound 狀態
   const [localNote, setLocalNote] = useState(d?.portMap || "");
   const [localConns, setLocalConns] = useState<Connection[]>(d?.connections || []);
 
-  if (!d) return null;
+  // ★ Inbound 狀態 (動態反向尋找)
+  const [originalIncoming] = useState<{sourceDevId: string, conn: Connection}[]>(() => {
+    if (isAccessory) return [];
+    const inc: { sourceDevId: string, conn: Connection }[] = [];
+    devices.forEach(dev => {
+      if (dev.id === id) return;
+      dev.connections.forEach(c => {
+        if (c.targetId === id) inc.push({ sourceDevId: dev.id, conn: c });
+      });
+    });
+    return inc;
+  });
+  
+  const [incomingConns, setIncomingConns] = useState([...originalIncoming]);
+  const [deletedIncoming, setDeletedIncoming] = useState<string[]>([]);
 
-  const isAccessory = d.category === "Accessory";
   const beforePos = d.beforeRackId && d.beforeStartU != null && d.beforeEndU != null ? `${getRackName(d.beforeRackId, lang)} ${d.beforeStartU}-${d.beforeEndU}U` : "-";
   const afterPos = d.afterRackId && d.afterStartU != null && d.afterEndU != null ? `${getRackName(d.afterRackId, lang)} ${d.afterStartU}-${d.afterEndU}U` : "-";
   
   const allowLayout = canManageAssets(role);
   const allowEditPort = canEditPortMap(role);
 
-  const isModified = localNote !== (d.portMap || "") || JSON.stringify(localConns) !== JSON.stringify(d.connections || []);
+  const isModified = localNote !== (d.portMap || "") || 
+    JSON.stringify(localConns) !== JSON.stringify(d.connections || []) ||
+    JSON.stringify(incomingConns) !== JSON.stringify(originalIncoming) ||
+    deletedIncoming.length > 0;
 
+  // Outbound actions
   const addConn = () => setLocalConns(p => [...p, { id: crypto.randomUUID(), localPort: '', targetId: '', targetPort: '' }]);
   const updateConn = (i: number, k: keyof Connection, v: string) => {
     const next = [...localConns]; next[i] = { ...next[i], [k]: v };
@@ -758,8 +786,43 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
     setLocalConns(next);
   };
 
+  // Inbound actions
+  const updateIncoming = (i: number, k: keyof Connection, v: string) => {
+    const next = [...incomingConns];
+    next[i] = { ...next[i], conn: { ...next[i].conn, [k]: v } };
+    setIncomingConns(next);
+  };
+  const removeIncoming = (i: number) => {
+    const removed = incomingConns[i];
+    setDeletedIncoming(p => [...p, removed.conn.id]);
+    const next = [...incomingConns];
+    next.splice(i, 1);
+    setIncomingConns(next);
+  };
+
+  // ★ 跨設備同步儲存
   const saveChanges = () => {
+    // 儲存自己的 outbound 與備註
     updateDevice(d.id, { portMap: localNote.trimEnd(), connections: localConns });
+
+    // 儲存修改的 inbound (更新別人肚子裡的資料)
+    incomingConns.forEach(inc => {
+      const sourceDev = useStore.getState().devices.find(x => x.id === inc.sourceDevId);
+      if (sourceDev) {
+        const newConns = sourceDev.connections.map(sc => sc.id === inc.conn.id ? inc.conn : sc);
+        if (JSON.stringify(sourceDev.connections) !== JSON.stringify(newConns)) {
+          useStore.getState().updateDevice(sourceDev.id, { connections: newConns });
+        }
+      }
+    });
+
+    // 處理刪除的 inbound
+    deletedIncoming.forEach(connId => {
+      const sourceDev = useStore.getState().devices.find(x => x.connections.some(c => c.id === connId));
+      if (sourceDev) {
+        useStore.getState().updateDevice(sourceDev.id, { connections: sourceDev.connections.filter(c => c.id !== connId) });
+      }
+    });
   };
 
   return (
@@ -786,7 +849,7 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
             )}
           </div>
 
-          {/* ★ 直覺編輯：智慧線路對接表 */}
+          {/* ★ 智慧線路對接表 */}
           {!isAccessory && (
             <div className="mt-4 p-4 rounded-2xl border border-[var(--border)] bg-[var(--panel2)]">
               <div className="flex justify-between items-center mb-3">
@@ -794,10 +857,11 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
                 {allowEditPort && <button type="button" onClick={addConn} className="text-xs bg-[var(--accent)] text-black px-3 py-1.5 rounded-lg font-bold hover:opacity-90 flex items-center gap-1"><Plus size={14} /> {t("addConnection", lang)}</button>}
               </div>
 
-              {localConns.length === 0 ? (
+              {(localConns.length === 0 && incomingConns.length === 0) ? (
                 <div className="text-xs text-[var(--muted)] italic">No Connections.</div>
               ) : (
                 <div className="space-y-4">
+                  {/* Outbound 迴圈 */}
                   {localConns.map((c, i) => {
                     const target = devices.find(x => x.id === c.targetId);
                     const targetName = target ? target.name : t("unknownDev", lang);
@@ -812,14 +876,51 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
                       <div key={c.id} className="flex flex-col gap-2 bg-[var(--panel)] p-3 rounded-xl border border-[var(--border)] shadow-sm">
                         {allowEditPort && (
                           <div className="flex flex-wrap md:flex-nowrap gap-2 items-center">
-                            <input placeholder={t("localPort", lang)} value={c.localPort} onChange={e => updateConn(i, 'localPort', e.target.value)} className="w-full md:w-1/4 bg-transparent border-b border-[var(--border)] focus:border-[var(--accent)] text-xs p-1 outline-none text-[var(--text)]" />
+                            <div className="text-[10px] bg-[var(--accent)]/20 text-[var(--accent)] px-2 py-1 rounded border border-[var(--accent)]/30 whitespace-nowrap">{t("outgoingConn", lang)}</div>
+                            <input placeholder={t("localPort", lang)} value={c.localPort} onChange={e => updateConn(i, 'localPort', e.target.value)} className="w-full md:w-[20%] bg-transparent border-b border-[var(--border)] focus:border-[var(--accent)] text-xs p-1 outline-none text-[var(--text)]" />
                             <span className="text-[var(--muted)] text-xs hidden md:block">{'->'}</span>
                             <select value={c.targetId} onChange={e => updateConn(i, 'targetId', e.target.value)} className="flex-1 w-full md:w-0 bg-[var(--panel2)] border border-[var(--border)] rounded-lg text-xs p-1 outline-none text-[var(--text)]">
                               <option value="">{t("selectDevice", lang)}</option>
                               {devices.filter(x => x.id !== d.id && x.category !== "Accessory").map(x => <option key={x.id} value={x.id}>{x.deviceId} - {x.name}</option>)}
                             </select>
-                            <input placeholder={t("targetPort", lang)} value={c.targetPort} onChange={e => updateConn(i, 'targetPort', e.target.value)} className="w-full md:w-1/4 bg-transparent border-b border-[var(--border)] focus:border-[var(--accent)] text-xs p-1 outline-none text-[var(--text)]" />
+                            <input placeholder={t("targetPort", lang)} value={c.targetPort} onChange={e => updateConn(i, 'targetPort', e.target.value)} className="w-full md:w-[20%] bg-transparent border-b border-[var(--border)] focus:border-[var(--accent)] text-xs p-1 outline-none text-[var(--text)]" />
                             <button type="button" onClick={() => removeConn(i)} className="p-1 text-red-400 hover:bg-white/10 rounded w-full md:w-auto flex justify-center"><X size={16}/></button>
+                          </div>
+                        )}
+                        <div className="flex flex-col md:flex-row gap-2 items-center text-[11px] mt-1 opacity-90">
+                          <div className="flex-1 w-full bg-black/10 dark:bg-white/5 border border-[var(--border)] px-2 py-1.5 rounded text-center font-mono text-[var(--accent)] font-bold truncate">{myLabel}</div>
+                          <div className="text-[var(--muted)] shrink-0 hidden md:block">{'⇄'}</div>
+                          <div className="flex-1 w-full bg-black/10 dark:bg-white/5 border border-[var(--border)] px-2 py-1.5 rounded text-center font-mono text-[var(--accent2)] font-bold truncate">{tLabel}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {/* ★ Inbound 迴圈 */}
+                  {incomingConns.map((inc, i) => {
+                    const sourceDev = devices.find(x => x.id === inc.sourceDevId);
+                    const sourceName = sourceDev ? sourceDev.name : t("unknownDev", lang);
+                    const rId = mode === "before" ? d.beforeRackId : d.afterRackId;
+                    const u = mode === "before" ? d.beforeStartU : d.afterStartU;
+                    const trId = mode === "before" ? sourceDev?.beforeRackId : sourceDev?.afterRackId;
+                    const tu = mode === "before" ? sourceDev?.beforeStartU : sourceDev?.afterStartU;
+                    
+                    // Incoming perspective: "myLabel" is the local port, which is targetPort on the source connection
+                    const myLabel = `${rId ? getRackName(rId, lang) : "-"}/${u||"-"}U/${d.name}/${inc.conn.targetPort||"-"}`;
+                    const tLabel = `${trId ? getRackName(trId, lang) : "-"}/${tu||"-"}U/${sourceName}/${inc.conn.localPort||"-"}`;
+
+                    return (
+                      <div key={inc.conn.id} className="flex flex-col gap-2 bg-[var(--panel)] p-3 rounded-xl border border-[var(--border)] shadow-sm">
+                        {allowEditPort && (
+                          <div className="flex flex-wrap md:flex-nowrap gap-2 items-center">
+                            <div className="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-1 rounded border border-blue-500/30 whitespace-nowrap">{t("incomingConn", lang)}</div>
+                            <input placeholder={t("localPort", lang)} value={inc.conn.targetPort} onChange={e => updateIncoming(i, 'targetPort', e.target.value)} className="w-full md:w-[20%] bg-transparent border-b border-[var(--border)] focus:border-[var(--accent)] text-xs p-1 outline-none text-[var(--text)]" />
+                            <span className="text-[var(--muted)] text-xs hidden md:block">{'<-'}</span>
+                            <div className="flex-1 w-full md:w-0 bg-black/10 border border-[var(--border)] rounded-lg text-xs p-1.5 text-[var(--text)] truncate">
+                              {sourceDev?.deviceId} - {sourceName}
+                            </div>
+                            <input placeholder={t("targetPort", lang)} value={inc.conn.localPort} onChange={e => updateIncoming(i, 'localPort', e.target.value)} className="w-full md:w-[20%] bg-transparent border-b border-[var(--border)] focus:border-[var(--accent)] text-xs p-1 outline-none text-[var(--text)]" />
+                            <button type="button" onClick={() => removeIncoming(i)} className="p-1 text-red-400 hover:bg-white/10 rounded w-full md:w-auto flex justify-center"><X size={16}/></button>
                           </div>
                         )}
                         <div className="flex flex-col md:flex-row gap-2 items-center text-[11px] mt-1 opacity-90">
@@ -835,7 +936,7 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
             </div>
           )}
 
-          {/* ★ 直覺編輯：一般備註 */}
+          {/* 一般備註 */}
           <div className="mt-4 p-4 rounded-2xl border border-[var(--border)] bg-[var(--panel2)]">
             <div className="flex items-center justify-between mb-2">
               <div className="text-xs font-bold text-[var(--text)]">{t("fNote", lang)}</div>
@@ -876,15 +977,32 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
   );
 }
 
-function DeviceModal({ title, initial, onClose, onSave }: { title: string; initial: DeviceDraft; onClose: () => void; onSave: (d: DeviceDraft) => void; }) {
+function DeviceModal({ title, deviceId, initial, onClose, onSave }: { title: string; deviceId?: string | null; initial: DeviceDraft; onClose: () => void; onSave: (d: DeviceDraft) => void; }) {
   const lang = useStore((s) => s.lang);
   const devices = useStore((s) => s.devices);
   const accOptions = getAccessoryOptions(lang);
   
+  const isAcc = initial.category === "Accessory";
   const [d, setD] = useState<DeviceDraft>({ ...initial, connections: initial.connections || [] });
   const input = (k: keyof DeviceDraft) => (e: any) => setD((p) => ({ ...p, [k]: e.target.value } as any));
 
-  const isAcc = d.category === "Accessory";
+  const [localConns, setLocalConns] = useState<Connection[]>(d.connections);
+
+  // ★ 編輯模式下，取得 Inbound
+  const [originalIncoming] = useState<{sourceDevId: string, conn: Connection}[]>(() => {
+    if (isAcc || !deviceId) return [];
+    const inc: { sourceDevId: string, conn: Connection }[] = [];
+    devices.forEach(dev => {
+      if (dev.id === deviceId) return;
+      dev.connections.forEach(c => {
+        if (c.targetId === deviceId) inc.push({ sourceDevId: dev.id, conn: c });
+      });
+    });
+    return inc;
+  });
+  
+  const [incomingConns, setIncomingConns] = useState([...originalIncoming]);
+  const [deletedIncoming, setDeletedIncoming] = useState<string[]>([]);
 
   const handleAccSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
@@ -892,26 +1010,59 @@ function DeviceModal({ title, initial, onClose, onSave }: { title: string; initi
     setD(p => ({ ...p, name: val, sizeU: autoU }));
   };
 
-  const addConn = () => setD(p => ({ ...p, connections: [...p.connections, { id: crypto.randomUUID(), localPort: '', targetId: '', targetPort: '' }] }));
+  const addConn = () => setLocalConns(p => [...p, { id: crypto.randomUUID(), localPort: '', targetId: '', targetPort: '' }]);
   const updateConn = (i: number, k: keyof Connection, v: string) => {
-    const next = [...d.connections]; next[i] = { ...next[i], [k]: v };
-    setD(p => ({ ...p, connections: next }));
+    const next = [...localConns]; next[i] = { ...next[i], [k]: v };
+    setLocalConns(next);
   };
   const removeConn = (i: number) => {
-    const next = [...d.connections]; next.splice(i, 1);
-    setD(p => ({ ...p, connections: next }));
+    const next = [...localConns]; next.splice(i, 1);
+    setLocalConns(next);
+  };
+
+  const updateIncoming = (i: number, k: keyof Connection, v: string) => {
+    const next = [...incomingConns];
+    next[i] = { ...next[i], conn: { ...next[i].conn, [k]: v } };
+    setIncomingConns(next);
+  };
+  const removeIncoming = (i: number) => {
+    const removed = incomingConns[i];
+    setDeletedIncoming(p => [...p, removed.conn.id]);
+    const next = [...incomingConns];
+    next.splice(i, 1);
+    setIncomingConns(next);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     let finalD = { ...d };
-    if (isAcc) {
+    if (d.category === "Accessory") {
       if (!finalD.name) finalD.name = accOptions[0];
       if (!finalD.deviceId) finalD.deviceId = `ACC-${Math.floor(Math.random() * 9000) + 1000}`;
     } else {
       if (!finalD.deviceId.trim() || !finalD.name.trim()) return alert("ID and Name are required.");
     }
-    onSave({ ...finalD, ports: Number(finalD.ports) || 0, sizeU: Math.max(1, Math.min(42, Number(finalD.sizeU) || 1)), portMap: (finalD.portMap ?? "").trimEnd() });
+    
+    onSave({ ...finalD, ports: Number(finalD.ports) || 0, sizeU: Math.max(1, Math.min(42, Number(finalD.sizeU) || 1)), portMap: (finalD.portMap ?? "").trimEnd(), connections: localConns });
+
+    // 跨設備同步儲存 inbound
+    if (!isAcc && deviceId) {
+      incomingConns.forEach(inc => {
+        const sourceDev = useStore.getState().devices.find(x => x.id === inc.sourceDevId);
+        if (sourceDev) {
+          const newConns = sourceDev.connections.map(sc => sc.id === inc.conn.id ? inc.conn : sc);
+          if (JSON.stringify(sourceDev.connections) !== JSON.stringify(newConns)) {
+            useStore.getState().updateDevice(sourceDev.id, { connections: newConns });
+          }
+        }
+      });
+      deletedIncoming.forEach(connId => {
+        const sourceDev = useStore.getState().devices.find(x => x.connections.some(c => c.id === connId));
+        if (sourceDev) {
+          useStore.getState().updateDevice(sourceDev.id, { connections: sourceDev.connections.filter(c => c.id !== connId) });
+        }
+      });
+    }
   };
 
   return (
@@ -933,7 +1084,7 @@ function DeviceModal({ title, initial, onClose, onSave }: { title: string; initi
             
             <div>
               <label className="text-xs text-[var(--muted)]">{t("fName", lang)}</label>
-              {isAcc ? (
+              {d.category === "Accessory" ? (
                 <select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)]" value={d.name} onChange={handleAccSelect}>
                   <option value="" disabled>Select...</option>
                   {accOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
@@ -944,7 +1095,7 @@ function DeviceModal({ title, initial, onClose, onSave }: { title: string; initi
               )}
             </div>
 
-            {!isAcc && (
+            {d.category !== "Accessory" && (
               <>
                 <div><label className="text-xs text-[var(--muted)]">{t("fId", lang)}</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)]" value={d.deviceId} onChange={input("deviceId")} placeholder="EX: SW-01" /></div>
                 <div><label className="text-xs text-[var(--muted)]">{t("fBrand", lang)}</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none text-[var(--text)]" value={d.brand} onChange={input("brand")} /></div>
@@ -955,35 +1106,55 @@ function DeviceModal({ title, initial, onClose, onSave }: { title: string; initi
 
             <div><label className="text-xs text-[var(--muted)]">{t("fU", lang)}</label><input type="number" min={1} max={42} className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none text-[var(--text)]" value={d.sizeU} onChange={(e) => setD((p) => ({ ...p, sizeU: Number(e.target.value) || 1 }))} /></div>
             
-            {!isAcc && (
+            {d.category !== "Accessory" && (
               <>
                 <div><label className="text-xs text-[var(--muted)]">{t("fIp", lang)}</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none text-[var(--text)]" value={d.ip ?? ""} onChange={input("ip")} placeholder="10.0.0.10" /></div>
                 <div className="md:col-span-2"><label className="text-xs text-[var(--muted)]">{t("fSn", lang)}</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none text-[var(--text)]" value={d.serial ?? ""} onChange={input("serial")} /></div>
               </>
             )}
             
-            {!isAcc && (
+            {/* ★ 智慧線路編輯 */}
+            {d.category !== "Accessory" && (
               <div className="md:col-span-2 mt-2 p-4 bg-[var(--panel2)] border border-[var(--border)] rounded-2xl">
                 <div className="flex justify-between items-center mb-3">
                   <label className="text-sm font-bold text-[var(--text)] flex items-center gap-2"><Link2 size={16} className="text-[var(--accent)]" /> {t("cableRouting", lang)}</label>
                   <button type="button" onClick={addConn} className="text-xs bg-[var(--accent)] text-black px-3 py-1.5 rounded-lg font-bold hover:opacity-90 flex items-center gap-1"><Plus size={14} /> {t("addConnection", lang)}</button>
                 </div>
-                {d.connections.length === 0 ? (
+                {(localConns.length === 0 && incomingConns.length === 0) ? (
                   <div className="text-xs text-[var(--muted)] italic">No Connections.</div>
                 ) : (
                   <div className="space-y-2">
-                    {d.connections.map((c, i) => (
+                    {/* Outbound */}
+                    {localConns.map((c, i) => (
                       <div key={c.id} className="flex flex-wrap md:flex-nowrap gap-2 items-center bg-[var(--panel)] p-2 rounded-xl border border-[var(--border)]">
-                        <input placeholder={t("localPort", lang)} value={c.localPort} onChange={e => updateConn(i, 'localPort', e.target.value)} className="w-full md:w-1/4 bg-transparent border-b border-[var(--border)] focus:border-[var(--accent)] text-xs p-1 outline-none text-[var(--text)]" />
+                        <div className="text-[10px] bg-[var(--accent)]/20 text-[var(--accent)] px-2 py-1 rounded border border-[var(--accent)]/30 whitespace-nowrap">{t("outgoingConn", lang)}</div>
+                        <input placeholder={t("localPort", lang)} value={c.localPort} onChange={e => updateConn(i, 'localPort', e.target.value)} className="w-full md:w-[20%] bg-transparent border-b border-[var(--border)] focus:border-[var(--accent)] text-xs p-1 outline-none text-[var(--text)]" />
                         <span className="text-[var(--muted)] text-xs hidden md:block">{'->'}</span>
                         <select value={c.targetId} onChange={e => updateConn(i, 'targetId', e.target.value)} className="flex-1 w-full md:w-0 bg-[var(--panel2)] border border-[var(--border)] rounded-lg text-xs p-1 outline-none text-[var(--text)]">
                           <option value="">{t("selectDevice", lang)}</option>
-                          {devices.filter(x => x.id !== d.id && x.category !== "Accessory").map(x => <option key={x.id} value={x.id}>{x.deviceId} - {x.name}</option>)}
+                          {devices.filter(x => x.id !== deviceId && x.category !== "Accessory").map(x => <option key={x.id} value={x.id}>{x.deviceId} - {x.name}</option>)}
                         </select>
-                        <input placeholder={t("targetPort", lang)} value={c.targetPort} onChange={e => updateConn(i, 'targetPort', e.target.value)} className="w-full md:w-1/4 bg-transparent border-b border-[var(--border)] focus:border-[var(--accent)] text-xs p-1 outline-none text-[var(--text)]" />
+                        <input placeholder={t("targetPort", lang)} value={c.targetPort} onChange={e => updateConn(i, 'targetPort', e.target.value)} className="w-full md:w-[20%] bg-transparent border-b border-[var(--border)] focus:border-[var(--accent)] text-xs p-1 outline-none text-[var(--text)]" />
                         <button type="button" onClick={() => removeConn(i)} className="p-1 text-red-400 hover:bg-white/10 rounded w-full md:w-auto flex justify-center"><X size={16}/></button>
                       </div>
                     ))}
+                    {/* Inbound */}
+                    {incomingConns.map((inc, i) => {
+                      const sourceDev = devices.find(x => x.id === inc.sourceDevId);
+                      const sourceName = sourceDev ? sourceDev.name : t("unknownDev", lang);
+                      return (
+                        <div key={inc.conn.id} className="flex flex-wrap md:flex-nowrap gap-2 items-center bg-[var(--panel)] p-2 rounded-xl border border-[var(--border)]">
+                          <div className="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-1 rounded border border-blue-500/30 whitespace-nowrap">{t("incomingConn", lang)}</div>
+                          <input placeholder={t("localPort", lang)} value={inc.conn.targetPort} onChange={e => updateIncoming(i, 'targetPort', e.target.value)} className="w-full md:w-[20%] bg-transparent border-b border-[var(--border)] focus:border-[var(--accent)] text-xs p-1 outline-none text-[var(--text)]" />
+                          <span className="text-[var(--muted)] text-xs hidden md:block">{'<-'}</span>
+                          <div className="flex-1 w-full md:w-0 bg-black/10 border border-[var(--border)] rounded-lg text-xs p-1.5 text-[var(--text)] truncate">
+                            {sourceDev?.deviceId} - {sourceName}
+                          </div>
+                          <input placeholder={t("targetPort", lang)} value={inc.conn.localPort} onChange={e => updateIncoming(i, 'localPort', e.target.value)} className="w-full md:w-[20%] bg-transparent border-b border-[var(--border)] focus:border-[var(--accent)] text-xs p-1 outline-none text-[var(--text)]" />
+                          <button type="button" onClick={() => removeIncoming(i)} className="p-1 text-red-400 hover:bg-white/10 rounded w-full md:w-auto flex justify-center"><X size={16}/></button>
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -1006,7 +1177,7 @@ function DeviceModal({ title, initial, onClose, onSave }: { title: string; initi
 }
 
 /* -----------------------------
-  Dashboard 輪播機櫃
+  Dashboard 輪播機櫃 (★ 極簡化)
 ----------------------------- */
 const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: Rack[] }) => {
   const [page, setPage] = useState(0);
@@ -1052,7 +1223,8 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
                     return (
                       <div key={d.id} className="absolute left-[2px] right-[2px] rounded flex flex-row justify-between items-center pl-1.5 md:pl-2 overflow-hidden shadow-md"
                            style={{ ...style, backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.2) 100%)" }}>
-                        <div className="flex-1 text-[9px] xl:text-[11px] 2xl:text-[13px] text-white font-medium truncate text-left drop-shadow-md pr-1" title={d.deviceId || d.name}>{isAcc ? d.name : `${d.deviceId} | ${d.name}`}</div>
+                        {/* ★ 儀表板極簡化：只顯示編號 */}
+                        <div className="flex-1 text-[9px] xl:text-[11px] 2xl:text-[13px] text-white font-medium truncate text-left drop-shadow-md pr-1" title={d.deviceId || d.name}>{isAcc ? d.name : d.deviceId}</div>
                         {!isAcc && (
                           <div className="flex shrink-0 items-center bg-black/40 rounded-md shadow-inner p-1 mr-1 transform origin-right scale-[0.55] xl:scale-[0.65]">
                             <LampsRow m={d.migration} />
@@ -1360,7 +1532,11 @@ const DevicesPage = () => {
               const after = d.afterRackId && d.afterStartU != null ? `${getRackName(d.afterRackId, lang)} ${d.afterStartU}-${d.afterEndU}U` : "-";
               const done = isMigratedComplete(d.migration);
               const isAcc = d.category === "Accessory";
-              const connCount = d.connections?.length || 0;
+              
+              // 計算與此設備有關的總線路數 (包含 outbound 與 inbound)
+              const outboundCount = d.connections?.length || 0;
+              const inboundCount = devices.filter(dev => dev.id !== d.id && dev.connections.some(c => c.targetId === d.id)).reduce((acc, dev) => acc + dev.connections.filter(c => c.targetId === d.id).length, 0);
+              const connCount = outboundCount + inboundCount;
 
               return (
                 <tr key={d.id} className="hover:bg-white/[0.02] transition-colors group text-[var(--text)]">
@@ -1371,11 +1547,13 @@ const DevicesPage = () => {
                   <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{isAcc ? "-" : d.model}</td>
                   <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{isAcc ? "-" : d.ports}</td>
                   <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{d.sizeU}U</td>
+                  
                   <td className="px-4 py-4 whitespace-nowrap">
                     {connCount > 0 ? (
                        <span className="text-[10px] font-bold px-2 py-0.5 rounded border border-[var(--accent)] text-[var(--accent)] bg-black/20">🔗 {connCount}</span>
                     ) : <span className="text-xs text-[var(--muted)]">-</span>}
                   </td>
+
                   <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{before}</td>
                   <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{after}</td>
                   <td className="px-4 py-4 whitespace-nowrap">{isAcc ? <span className="text-[10px] text-[var(--muted)]">-</span> : <LampsRow m={d.migration} />}</td>
@@ -1400,7 +1578,7 @@ const DevicesPage = () => {
       {importOpen && <FullCSVImportModal onClose={() => setImportOpen(false)} />}
       {appendOpen && <AppendCSVImportModal onClose={() => setAppendOpen(false)} />}
       {isAdding && (<DeviceModal title={t("addDeviceTitle", lang)} initial={{ category: "Other", deviceId: "", name: "", brand: "", model: "", ports: 8, sizeU: 1, ip: "", serial: "", portMap: "", connections: [] }} onClose={() => setIsAdding(false)} onSave={(d) => { addDevice(d); setIsAdding(false); }} />)}
-      {editing && (<DeviceModal title={t("editDeviceTitle", lang)} initial={{ category: editing.category, deviceId: editing.deviceId, name: editing.name, brand: editing.brand, model: editing.model, ports: editing.ports, sizeU: editing.sizeU, ip: editing.ip ?? "", serial: editing.serial ?? "", portMap: editing.portMap ?? "", connections: editing.connections ?? [] }} onClose={() => setEditing(null)} onSave={(d) => { updateDevice(editing.id, d); setEditing(null); }} />)}
+      {editing && (<DeviceModal title={t("editDeviceTitle", lang)} deviceId={editing.id} initial={{ category: editing.category, deviceId: editing.deviceId, name: editing.name, brand: editing.brand, model: editing.model, ports: editing.ports, sizeU: editing.sizeU, ip: editing.ip ?? "", serial: editing.serial ?? "", portMap: editing.portMap ?? "", connections: editing.connections ?? [] }} onClose={() => setEditing(null)} onSave={(d) => { updateDevice(editing.id, d); setEditing(null); }} />)}
     </div>
   );
 };
@@ -1540,7 +1718,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
   const collapsed = mode === "before" ? ui.unplacedCollapsedBefore : ui.unplacedCollapsedAfter;
   const setCollapsed = (v: boolean) => setUi(mode === "before" ? { unplacedCollapsedBefore: v } : { unplacedCollapsedAfter: v });
 
-  // ★ 修正：精準兩排斷行邏輯
+  // ★ 確保搬遷前分兩排 (10~6, 5~1)
   const rackRows = useMemo(() => {
     if (mode === "before") {
       const map = new Map(racks.map((r) => [r.name || r.id.replace("BEF_",""), r]));
@@ -1670,7 +1848,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
 
                           return (
                             <div key={d.id} draggable={allowLayout} onDragStart={(ev) => { if (!allowLayout) return; ev.dataTransfer.setData("text/plain", d.id); setDraggingDevice(d); ev.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => setDraggingDevice(null)} onClick={() => setSelectedDeviceId(d.id)} onMouseMove={(e) => { setHoverId(d.id); setHoverInfo({ x: e.clientX, y: e.clientY, d, beforePos, afterPos }); }} onMouseLeave={() => { setHoverId(null); setHoverInfo(null); }} className={`absolute left-[2px] right-[2px] rounded flex flex-row items-center px-2 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] transition-all pointer-events-auto overflow-hidden ${isHovered ? "brightness-125 scale-[1.01] z-20 shadow-[0_0_15px_rgba(56,189,248,0.4)]" : "z-10"}`} style={{ bottom: bottom + 1, height: height - 2, backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.2) 100%)", cursor: allowLayout ? "grab" : "pointer" }}>
-                              {/* ★ 修正：1U 與 多U 的極致排版邏輯 */}
+                              {/* ★ 1U 與 多U 的極致排版邏輯 */}
                               <div className="flex-1 h-full flex flex-col justify-center min-w-0 pr-14 drop-shadow-md">
                                 {isAcc ? (
                                   <div className="truncate w-full font-bold text-[10px] sm:text-[11px] leading-tight">{d.name}</div>
@@ -1708,7 +1886,7 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
 };
 
 /* -----------------------------
-  ★ 全新功能：問題回報 (Issue Tracking)
+  ★ 問題回報 (Issue Tracking)
 ----------------------------- */
 const IssuesPage = () => {
   const issues = useStore((s) => s.issues);
@@ -1768,7 +1946,6 @@ const IssuesPage = () => {
           </div>
           
           <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-[var(--bg)] space-y-4">
-            {/* Original Post */}
             <div className="bg-[var(--panel)] border border-[var(--border)] rounded-2xl p-4 shadow-sm">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-6 h-6 rounded-full bg-[var(--accent)] flex items-center justify-center text-black font-bold text-xs">{issue.author.charAt(0).toUpperCase()}</div>
@@ -1777,7 +1954,6 @@ const IssuesPage = () => {
               <div className="text-sm text-[var(--text)] whitespace-pre-wrap break-words ml-8">{issue.description}</div>
             </div>
 
-            {/* Replies */}
             {issue.replies.map(r => (
               <div key={r.id} className={`flex flex-col max-w-[85%] ${r.author === userName ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
                 <div className="flex items-center gap-1.5 mb-1 px-1">
@@ -1986,7 +2162,7 @@ export default function App() {
       { id: "devices" as const, label: t("navDevices", lang), icon: <Server size={20} /> },
       { id: "before" as const, label: t("navBefore", lang), icon: <ArrowLeftRight size={20} /> },
       { id: "after" as const, label: t("navAfter", lang), icon: <ArrowRightLeft size={20} /> },
-      { id: "issues" as const, label: t("navIssues", lang), icon: <MessageSquare size={20} /> }, // ★ 新增問題回報選單
+      { id: "issues" as const, label: t("navIssues", lang), icon: <MessageSquare size={20} /> },
     ];
     if (role === "admin") base.push({ id: "admin" as const, label: t("navAdmin", lang), icon: <Shield size={20} /> });
     return base;

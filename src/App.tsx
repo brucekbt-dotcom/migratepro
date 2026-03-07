@@ -49,12 +49,10 @@ type Device = {
 };
 type DeviceDraft = Omit<Device, "id" | "beforeRackId" | "beforeStartU" | "beforeEndU" | "afterRackId" | "afterStartU" | "afterEndU" | "migration">;
 
-// Issues Tracking
 type IssueReply = { id: string; text: string; author: string; createdAt: number; };
 type IssueStatus = "open" | "resolved";
 type Issue = { id: string; title: string; description: string; author: string; createdAt: number; status: IssueStatus; replies: IssueReply[]; };
 
-// Runbook / Gantt Chart
 type TaskStatus = "pending" | "in_progress" | "done" | "verified";
 type Task = { id: string; title: string; vendor: string; dayIndex: number; startHH: number; endHH: number; status: TaskStatus; };
 type ProjectInfo = { startDate: string; days: number; };
@@ -63,34 +61,11 @@ type UiState = { sideCollapsed: boolean; unplacedCollapsedBefore: boolean; unpla
 type LoginResult = { ok: boolean; message?: string };
 type Account = { username: string; password: string; role: Role; };
 
-/* -----------------------------
-  LocalStorage Keys & Utils
------------------------------ */
+/* ==========================================
+   Constants & Dictionary
+========================================== */
 const LS = { theme: "migrate.theme", themeStyle: "migrate.themeStyle", devices: "migrate.devices", ui: "migrate.ui", auth: "migrate.auth", user: "migrate.user", accounts: "migrate.accounts", lang: "migrate.lang", issues: "migrate.issues", tasks: "migrate.tasks", projectInfo: "migrate.projInfo" } as const;
 
-const readJson = <T,>(k: string, fallback: T): T => { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : fallback; } catch { return fallback; } };
-const writeJson = (k: string, v: any) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
-
-const getTimestamp = () => {
-  const d = new Date(); const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
-};
-const formatDate = (ts: number) => {
-  const d = new Date(ts); const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-const formatHH = (hh: number) => `${String(Math.floor(hh/2)).padStart(2,'0')}:${hh%2===0?'00':'30'}`;
-
-// Smart Color Palette for Vendors
-const getVendorColor = (name: string) => {
-  const colors = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4", "#f43f5e", "#84cc16", "#14b8a6", "#d946ef"];
-  let hash = 0; for(let i=0; i<name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return colors[Math.abs(hash) % colors.length];
-};
-
-/* -----------------------------
-  ★ i18n Dictionary
------------------------------ */
 const DICT = {
   zh: {
     navDashboard: "儀表板", navDevices: "設備管理", navBefore: "搬遷前 配置", navAfter: "搬遷後 配置", navRunbook: "專案劇本", navIssues: "問題回報", navGuide: "系統說明", navAdmin: "管理後台",
@@ -155,9 +130,6 @@ const getAccessoryOptions = (lang: Lang) => [ t("accCable1U", lang), t("accCable
 
 const FIXED_COLORS = { Network: "#22c55e", Server: "#3b82f6", Storage: "#8b5cf6", Accessory: "#64748b", Other: "#fb923c" };
 
-/* -----------------------------
-  Rack Layouts
------------------------------ */
 const BEFORE_RACKS: Rack[] = [
   ...["10", "09", "08", "07", "06", "05", "04", "03", "02", "01"].map((n) => ({ id: `BEF_${n}`, name: n, units: 42 })),
   ...["2F-A", "2F-B", "3F-A", "3F-B", "4F-A", "4F-B", "9F", "SmartHouseA", "SmartHouseB"].map((n) => ({ id: `BEF_${n}`, name: n, units: 42 })),
@@ -183,9 +155,9 @@ const getRackName = (id: string, lang: Lang) => {
   return clean;
 };
 
-/* -----------------------------
-  權限與小工具
------------------------------ */
+/* ==========================================
+   Utilities
+========================================== */
 const canManageAssets = (role: Role) => role === "admin";
 const canEditPortMap = (role: Role) => role === "admin" || role === "cable";
 const canToggleFlags = (_role: Role) => true;
@@ -198,141 +170,46 @@ const isMigratedComplete = (m: MigrationFlags) => m.racked && m.cabled && m.powe
 const readJson = <T,>(k: string, fallback: T): T => { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : fallback; } catch { return fallback; } };
 const writeJson = (k: string, v: any) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
-const syncToCloud = async (patch: any) => {
-  try { const cleanPatch = JSON.parse(JSON.stringify(patch)); await setDoc(doc(db, "migratePro", "mainState"), cleanPatch, { merge: true }); } catch (e) {}
-};
+const syncToCloudFull = async (s: any) => { try { await setDoc(doc(db, "migratePro", "mainState"), JSON.parse(JSON.stringify(s)), { merge: true }); } catch (e) {} };
 
-const syncToCloudFull = async (s: any) => {
-  try { await setDoc(doc(db, "migratePro", "mainState"), JSON.parse(JSON.stringify(s)), { merge: true }); } catch (e) {}
-};
+const getTimestamp = () => { const d = new Date(); const pad = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`; };
+const formatDate = (ts: number) => { const d = new Date(ts); const pad = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const formatHH = (hh: number) => `${String(Math.floor(hh/2)).padStart(2,'0')}:${hh%2===0?'00':'30'}`;
+const getVendorColor = (name: string) => { const colors = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4", "#f43f5e", "#84cc16", "#14b8a6", "#d946ef"]; let hash = 0; for(let i=0; i<name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash); return colors[Math.abs(hash) % colors.length]; };
 
-function loadAccounts(): Account[] {
-  const v = readJson<Account[]>(LS.accounts, []);
-  if (!Array.isArray(v) || v.length === 0) { const d = [{ username: "admin", password: "123", role: "admin" as Role }]; writeJson(LS.accounts, d); return d; }
-  const a = v.some((x) => x.username === "admin") ? v : [{ username: "admin", password: "123", role: "admin" as Role }, ...v];
-  return a.map(x => x.username === "admin" ? {...x, role: "admin"} : x);
-}
-
-/* -----------------------------
-  CSV 工具函式 
------------------------------ */
-const escapeCSV = (str: string | number | undefined | null) => {
-  if (str == null) return "";
-  return `"${String(str).replace(/"/g, '""')}"`;
-};
-
+/* ==========================================
+   CSV Utilities
+========================================== */
+const escapeCSV = (str: string | number | undefined | null) => { if (str == null) return ""; return `"${String(str).replace(/"/g, '""')}"`; };
 const CSV_HEADER = "id,category,deviceId,name,brand,model,ports,sizeU,ip,serial,portMap,connections,beforeRackId,beforeStartU,beforeEndU,afterRackId,afterStartU,afterEndU,m_racked,m_cabled,m_powered,m_tested";
 
 const downloadFullCSV = (devices: Device[]) => {
-  const rows = devices.map(d => [
-    d.id, d.category, d.deviceId, d.name, d.brand, d.model, d.ports, d.sizeU,
-    d.ip || "", d.serial || "", d.portMap || "",
-    d.connections ? JSON.stringify(d.connections) : "[]",
-    d.beforeRackId || "", d.beforeStartU || "", d.beforeEndU || "",
-    d.afterRackId || "", d.afterStartU || "", d.afterEndU || "",
-    d.migration.racked ? "1" : "0", d.migration.cabled ? "1" : "0", d.migration.powered ? "1" : "0", d.migration.tested ? "1" : "0"
-  ].map(escapeCSV).join(','));
-
+  const rows = devices.map(d => [ d.id, d.category, d.deviceId, d.name, d.brand, d.model, d.ports, d.sizeU, d.ip || "", d.serial || "", d.portMap || "", d.connections ? JSON.stringify(d.connections) : "[]", d.beforeRackId || "", d.beforeStartU || "", d.beforeEndU || "", d.afterRackId || "", d.afterStartU || "", d.afterEndU || "", d.migration.racked ? "1" : "0", d.migration.cabled ? "1" : "0", d.migration.powered ? "1" : "0", d.migration.tested ? "1" : "0" ].map(escapeCSV).join(','));
   const csvContent = "\uFEFF" + [CSV_HEADER, ...rows].join("\n");
   const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
-  const link = document.createElement("a"); link.setAttribute("href", encodedUri); 
-  link.setAttribute("download", `MigratePro_FullBackup_${getTimestamp()}.csv`);
-  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", `MigratePro_FullBackup_${getTimestamp()}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link);
 };
 
 const downloadCableLabelsCSV = (devices: Device[], lang: Lang) => {
-  const rows: string[] = [];
-  const header = [t("lblSrcDev", lang), t("lblTgtDev", lang), t("lblBefSrc", lang), t("lblBefTgt", lang), t("lblAftSrc", lang), t("lblAftTgt", lang)];
-  rows.push(header.map(escapeCSV).join(","));
-
-  devices.forEach(d => {
-    if (!d.connections) return;
-    d.connections.forEach(c => {
-      const target = devices.find(x => x.id === c.targetId);
-      if (!target) return;
-      const getRack = (rId: string | undefined) => rId ? getRackName(rId, lang) : "-";
-      const bSrc = `${getRack(d.beforeRackId)}/${d.beforeStartU||"-"}U/${d.name}/${c.localPort||"-"}`;
-      const bTgt = `${getRack(target.beforeRackId)}/${target.beforeStartU||"-"}U/${target.name}/${c.targetPort||"-"}`;
-      const aSrc = `${getRack(d.afterRackId)}/${d.afterStartU||"-"}U/${d.name}/${c.localPort||"-"}`;
-      const aTgt = `${getRack(target.afterRackId)}/${target.afterStartU||"-"}U/${target.name}/${c.targetPort||"-"}`;
-      rows.push([d.name, target.name, bSrc, bTgt, aSrc, aTgt].map(escapeCSV).join(","));
-    });
-  });
-
-  const csvContent = "\uFEFF" + rows.join("\n");
-  const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
-  const link = document.createElement("a"); link.setAttribute("href", encodedUri); 
-  link.setAttribute("download", `CableLabels_${getTimestamp()}.csv`);
-  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  const rows: string[] = []; const header = [t("lblSrcDev", lang), t("lblTgtDev", lang), t("lblBefSrc", lang), t("lblBefTgt", lang), t("lblAftSrc", lang), t("lblAftTgt", lang)]; rows.push(header.map(escapeCSV).join(","));
+  devices.forEach(d => { if (!d.connections) return; d.connections.forEach(c => { const target = devices.find(x => x.id === c.targetId); if (!target) return; const getRack = (rId: string | undefined) => rId ? getRackName(rId, lang) : "-"; const bSrc = `${getRack(d.beforeRackId)}/${d.beforeStartU||"-"}U/${d.name}/${c.localPort||"-"}`; const bTgt = `${getRack(target.beforeRackId)}/${target.beforeStartU||"-"}U/${target.name}/${c.targetPort||"-"}`; const aSrc = `${getRack(d.afterRackId)}/${d.afterStartU||"-"}U/${d.name}/${c.localPort||"-"}`; const aTgt = `${getRack(target.afterRackId)}/${target.afterStartU||"-"}U/${target.name}/${c.targetPort||"-"}`; rows.push([d.name, target.name, bSrc, bTgt, aSrc, aTgt].map(escapeCSV).join(",")); }); });
+  const csvContent = "\uFEFF" + rows.join("\n"); const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", `CableLabels_${getTimestamp()}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link);
 };
 
-const downloadFullCSVTemplate = () => {
-  const csvContent = "\uFEFF" + CSV_HEADER + "\n";
-  const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
-  const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "MigratePro_Template.csv");
-  document.body.appendChild(link); link.click(); document.body.removeChild(link);
-};
+const downloadFullCSVTemplate = () => { const csvContent = "\uFEFF" + CSV_HEADER + "\n"; const encodedUri = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "MigratePro_Template.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
+const parseCSV = (str: string): string[][] => { const delimiter = str.includes('\t') && (!str.includes(',') || str.indexOf('\t') < str.indexOf(',')) ? '\t' : ','; const arr: string[][] = []; let quote = false, row = 0, col = 0; for (let c = 0; c < str.length; c++) { let cc = str[c], nc = str[c+1]; arr[row] = arr[row] || []; arr[row][col] = arr[row][col] || ''; if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; } if (cc === '"') { quote = !quote; continue; } if (cc === delimiter && !quote) { ++col; continue; } if (cc === '\r' && nc === '\n' && !quote) { ++row; col = 0; ++c; continue; } if (cc === '\n' && !quote) { ++row; col = 0; continue; } if (cc === '\r' && !quote) { ++row; col = 0; continue; } arr[row][col] += cc; } return arr; };
+const backwardCompatRackId = (val: string | undefined): string | undefined => { if (!val) return undefined; if (val.includes("新購設備存放區")) return "BEF_New_Device"; if (val.includes("不搬存放區A")) return "AFT_Unmoved_A"; if (val.includes("不搬存放區B")) return "AFT_Unmoved_B"; if (val.includes("不搬存放區C") || val.includes("搬遷不上架存放區")) return "AFT_Unmoved_C"; if (val.includes("SmartHouse 20F")) return "AFT_SmartHouse_20F"; if (!val.startsWith("BEF_") && !val.startsWith("AFT_")) { if (val === "10" || val === "09" || val.includes("F")) return `BEF_${val}`; if (val.includes("A") || val.includes("B") || val.includes("HUB")) return `AFT_${val}`; } return val; };
+const normalizeDevices = (raw: any[]): Device[] => { const arr = Array.isArray(raw) ? raw : []; return arr.map((d: any) => { const sizeU = Math.max(1, Math.min(42, Number(d?.sizeU ?? 1))); let beforeRackId = backwardCompatRackId(d?.beforeRackId); let afterRackId = backwardCompatRackId(d?.afterRackId); let connections = []; try { connections = typeof d?.connections === 'string' ? JSON.parse(d.connections) : (d?.connections || []); } catch(e){} return { id: String(d?.id ?? crypto.randomUUID()), category: (d?.category as DeviceCategory) || "Other", deviceId: String(d?.deviceId ?? ""), name: String(d?.name ?? ""), brand: String(d?.brand ?? ""), model: String(d?.model ?? ""), ports: Number(d?.ports ?? 0), sizeU, ip: String(d?.ip ?? ""), serial: String(d?.serial ?? ""), portMap: String(d?.portMap ?? ""), connections: Array.isArray(connections) ? connections : [], beforeRackId, beforeStartU: d?.beforeStartU ?? undefined, beforeEndU: d?.beforeEndU ?? undefined, afterRackId, afterStartU: d?.afterStartU ?? undefined, afterEndU: d?.afterEndU ?? undefined, migration: { racked: Boolean(d?.migration?.racked ?? false), cabled: Boolean(d?.migration?.cabled ?? false), powered: Boolean(d?.migration?.powered ?? false), tested: Boolean(d?.migration?.tested ?? false) }, } as Device; }); };
 
-const parseCSV = (str: string): string[][] => {
-  const delimiter = str.includes('\t') && (!str.includes(',') || str.indexOf('\t') < str.indexOf(',')) ? '\t' : ',';
-  const arr: string[][] = []; let quote = false, row = 0, col = 0;
-  for (let c = 0; c < str.length; c++) {
-    let cc = str[c], nc = str[c+1];
-    arr[row] = arr[row] || []; arr[row][col] = arr[row][col] || '';
-    if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }
-    if (cc === '"') { quote = !quote; continue; }
-    if (cc === delimiter && !quote) { ++col; continue; }
-    if (cc === '\r' && nc === '\n' && !quote) { ++row; col = 0; ++c; continue; }
-    if (cc === '\n' && !quote) { ++row; col = 0; continue; }
-    if (cc === '\r' && !quote) { ++row; col = 0; continue; }
-    arr[row][col] += cc;
-  }
-  return arr;
-};
-
-const backwardCompatRackId = (val: string | undefined): string | undefined => {
-  if (!val) return undefined;
-  if (val.includes("新購設備存放區")) return "BEF_New_Device";
-  if (val.includes("不搬存放區A")) return "AFT_Unmoved_A";
-  if (val.includes("不搬存放區B")) return "AFT_Unmoved_B";
-  if (val.includes("不搬存放區C") || val.includes("搬遷不上架存放區")) return "AFT_Unmoved_C";
-  if (val.includes("SmartHouse 20F")) return "AFT_SmartHouse_20F";
-  if (!val.startsWith("BEF_") && !val.startsWith("AFT_")) {
-    if (val === "10" || val === "09" || val.includes("F")) return `BEF_${val}`;
-    if (val.includes("A") || val.includes("B") || val.includes("HUB")) return `AFT_${val}`;
-  }
-  return val;
-};
-
-const normalizeDevices = (raw: any[]): Device[] => {
-  const arr = Array.isArray(raw) ? raw : [];
-  return arr.map((d: any) => {
-    const sizeU = Math.max(1, Math.min(42, Number(d?.sizeU ?? 1)));
-    let beforeRackId = backwardCompatRackId(d?.beforeRackId);
-    let afterRackId = backwardCompatRackId(d?.afterRackId);
-    let connections = []; try { connections = typeof d?.connections === 'string' ? JSON.parse(d.connections) : (d?.connections || []); } catch(e){}
-
-    return {
-      id: String(d?.id ?? crypto.randomUUID()), category: (d?.category as DeviceCategory) || "Other",
-      deviceId: String(d?.deviceId ?? ""), name: String(d?.name ?? ""), brand: String(d?.brand ?? ""), model: String(d?.model ?? ""),
-      ports: Number(d?.ports ?? 0), sizeU, ip: String(d?.ip ?? ""), serial: String(d?.serial ?? ""), portMap: String(d?.portMap ?? ""),
-      connections: Array.isArray(connections) ? connections : [],
-      beforeRackId, beforeStartU: d?.beforeStartU ?? undefined, beforeEndU: d?.beforeEndU ?? undefined,
-      afterRackId, afterStartU: d?.afterStartU ?? undefined, afterEndU: d?.afterEndU ?? undefined,
-      migration: { racked: Boolean(d?.migration?.racked ?? false), cabled: Boolean(d?.migration?.cabled ?? false), powered: Boolean(d?.migration?.powered ?? false), tested: Boolean(d?.migration?.tested ?? false) },
-    } as Device;
-  });
-};
-
-/* -----------------------------
-  Store Setup
------------------------------ */
+/* ==========================================
+   Store Definition
+========================================== */
 interface Store {
   devices: Device[]; issues: Issue[]; tasks: Task[]; projectInfo: ProjectInfo;
-  theme: ThemeMode; themeStyle: ThemeStyle; lang: Lang; page: PageKey; selectedDeviceId: string | null; ui: UiState;
-  draggingDevice: Device | null; setDraggingDevice: (d: Device | null) => void;
-  accounts: Account[]; upsertAccount: (a: Account) => { ok: boolean; message?: string }; deleteAccount: (username: string) => { ok: boolean; message?: string };
-  isAuthed: boolean; userName: string | null; role: Role; login: (u: string, p: string) => LoginResult; logout: () => void;
+  theme: ThemeMode; themeStyle: ThemeStyle; lang: Lang; page: PageKey; selectedDeviceId: string | null; ui: UiState; draggingDevice: Device | null;
+  accounts: Account[]; isAuthed: boolean; userName: string | null; role: Role;
+  setDraggingDevice: (d: Device | null) => void; upsertAccount: (a: Account) => { ok: boolean; message?: string }; deleteAccount: (username: string) => { ok: boolean; message?: string };
+  login: (u: string, p: string) => LoginResult; logout: () => void;
   setPage: (p: PageKey) => void; toggleTheme: () => void; setThemeStyle: (s: ThemeStyle) => void; setLang: (l: Lang) => void; setSelectedDeviceId: (id: string | null) => void; setUi: (patch: Partial<UiState>) => void;
   addDevice: (draft: DeviceDraft) => string; updateDevice: (id: string, patch: Partial<DeviceDraft | {portMap?: string, connections?: Connection[]}>) => void; deleteDeviceById: (id: string) => void;
   importFullCSV: (fileText: string) => { ok: boolean; message?: string }; appendDevicesFromCSV: (fileText: string) => { ok: boolean; message?: string };
@@ -342,37 +219,20 @@ interface Store {
   updateProjectInfo: (info: ProjectInfo) => void; addTask: (task: Omit<Task, "id"|"status">) => void; updateTaskStatus: (id: string, status: TaskStatus) => void; deleteTask: (id: string) => void;
 }
 
+function loadAccounts(): Account[] { const v = readJson<Account[]>(LS.accounts, []); if (!Array.isArray(v) || v.length === 0) { const d = [{ username: "admin", password: "123", role: "admin" as Role }]; writeJson(LS.accounts, d); return d; } const a = v.some((x) => x.username === "admin") ? v : [{ username: "admin", password: "123", role: "admin" as Role }, ...v]; return a.map(x => x.username === "admin" ? {...x, role: "admin"} : x); }
+
 const useStore = create<Store>((set, get) => ({
-  devices: normalizeDevices(readJson<Device[]>(LS.devices, [])),
-  issues: readJson<Issue[]>(LS.issues, []),
-  tasks: readJson<Task[]>(LS.tasks, []),
-  projectInfo: readJson<ProjectInfo>(LS.projectInfo, { startDate: getTimestamp().slice(0,10), days: 3 }),
-
-  theme: (localStorage.getItem(LS.theme) as ThemeMode) || "dark", themeStyle: (localStorage.getItem(LS.themeStyle) as ThemeStyle) || "neon", lang: (localStorage.getItem(LS.lang) as Lang) || "zh",
-  page: "dashboard", selectedDeviceId: null, ui: { sideCollapsed: false, unplacedCollapsedBefore: false, unplacedCollapsedAfter: false, ...readJson<UiState>(LS.ui, {} as UiState) },
-  draggingDevice: null, setDraggingDevice: (d) => set({ draggingDevice: d }),
-  accounts: loadAccounts(),
-
-  upsertAccount: (a) => {
-    const username = a.username.trim(); if (!username || username.includes(" ") || !a.password) return { ok: false };
-    const next = get().accounts.some((x) => x.username === username) ? get().accounts.map((x) => (x.username === username ? { ...a, username } : x)) : [...get().accounts, { ...a, username }];
-    writeJson(LS.accounts, next); syncToCloudFull({ accounts: next }); set({ accounts: next }); return { ok: true };
-  },
-  deleteAccount: (username) => {
-    if (username === "admin") return { ok: false }; const next = get().accounts.filter((a) => a.username !== username);
-    writeJson(LS.accounts, next); syncToCloudFull({ accounts: next }); set({ accounts: next }); return { ok: true };
-  },
-  isAuthed: localStorage.getItem(LS.auth) === "1", userName: localStorage.getItem(LS.user) || null,
-  role: (() => { const u = localStorage.getItem(LS.user); if (u === "admin") return "admin"; return loadAccounts().find((a) => a.username === u)?.role ?? "vendor"; })(),
-  login: (u, p) => {
-    const f = get().accounts.find((a) => a.username === u.trim() && a.password === p); if (!f) return { ok: false };
-    localStorage.setItem(LS.auth, "1"); localStorage.setItem(LS.user, u.trim()); set({ isAuthed: true, userName: u.trim(), role: f.role, page: "dashboard", selectedDeviceId: null }); return { ok: true };
-  },
+  devices: normalizeDevices(readJson<Device[]>(LS.devices, [])), issues: readJson<Issue[]>(LS.issues, []), tasks: readJson<Task[]>(LS.tasks, []), projectInfo: readJson<ProjectInfo>(LS.projectInfo, { startDate: getTimestamp().slice(0,10), days: 3 }),
+  theme: (localStorage.getItem(LS.theme) as ThemeMode) || "dark", themeStyle: (localStorage.getItem(LS.themeStyle) as ThemeStyle) || "neon", lang: (localStorage.getItem(LS.lang) as Lang) || "zh", page: "dashboard", selectedDeviceId: null, ui: { sideCollapsed: false, unplacedCollapsedBefore: false, unplacedCollapsedAfter: false, ...readJson<UiState>(LS.ui, {} as UiState) }, draggingDevice: null, accounts: loadAccounts(),
+  isAuthed: localStorage.getItem(LS.auth) === "1", userName: localStorage.getItem(LS.user) || null, role: (() => { const u = localStorage.getItem(LS.user); if (u === "admin") return "admin"; return loadAccounts().find((a) => a.username === u)?.role ?? "vendor"; })(),
+  
+  setDraggingDevice: (d) => set({ draggingDevice: d }),
+  upsertAccount: (a) => { const username = a.username.trim(); if (!username || username.includes(" ") || !a.password) return { ok: false }; const next = get().accounts.some((x) => x.username === username) ? get().accounts.map((x) => (x.username === username ? { ...a, username } : x)) : [...get().accounts, { ...a, username }]; writeJson(LS.accounts, next); syncToCloudFull({ accounts: next }); set({ accounts: next }); return { ok: true }; },
+  deleteAccount: (username) => { if (username === "admin") return { ok: false }; const next = get().accounts.filter((a) => a.username !== username); writeJson(LS.accounts, next); syncToCloudFull({ accounts: next }); set({ accounts: next }); return { ok: true }; },
+  login: (u, p) => { const f = get().accounts.find((a) => a.username === u.trim() && a.password === p); if (!f) return { ok: false }; localStorage.setItem(LS.auth, "1"); localStorage.setItem(LS.user, u.trim()); set({ isAuthed: true, userName: u.trim(), role: f.role, page: "dashboard", selectedDeviceId: null }); return { ok: true }; },
   logout: () => { localStorage.removeItem(LS.auth); localStorage.removeItem(LS.user); set({ isAuthed: false, userName: null, role: "vendor", page: "dashboard", selectedDeviceId: null }); },
-  setPage: (page) => set({ page }), toggleTheme: () => set((s) => { const next = s.theme === "dark" ? "light" : "dark"; localStorage.setItem(LS.theme, next); return { theme: next }; }),
-  setThemeStyle: (themeStyle) => { localStorage.setItem(LS.themeStyle, themeStyle); set({ themeStyle }); }, setLang: (lang) => { localStorage.setItem(LS.lang, lang); set({ lang }); },
-  setSelectedDeviceId: (id) => set({ selectedDeviceId: id }), setUi: (p) => set((s) => { const next = { ...s.ui, ...p }; writeJson(LS.ui, next); return { ui: next }; }),
-
+  setPage: (page) => set({ page }), toggleTheme: () => set((s) => { const next = s.theme === "dark" ? "light" : "dark"; localStorage.setItem(LS.theme, next); return { theme: next }; }), setThemeStyle: (themeStyle) => { localStorage.setItem(LS.themeStyle, themeStyle); set({ themeStyle }); }, setLang: (lang) => { localStorage.setItem(LS.lang, lang); set({ lang }); }, setSelectedDeviceId: (id) => set({ selectedDeviceId: id }), setUi: (p) => set((s) => { const next = { ...s.ui, ...p }; writeJson(LS.ui, next); return { ui: next }; }),
+  
   addDevice: (draft) => { const id = crypto.randomUUID(); set((s) => { const next = [...s.devices, { ...draft, id, migration: { racked: false, cabled: false, powered: false, tested: false } } as Device]; writeJson(LS.devices, next); syncToCloudFull({ devices: next }); return { devices: next }; }); return id; },
   updateDevice: (id, patch) => set((s) => { const next = s.devices.map((d) => d.id === id ? ({ ...d, ...patch } as Device) : d); writeJson(LS.devices, next); syncToCloudFull({ devices: next }); return { devices: next }; }),
   deleteDeviceById: (id) => set((s) => { const next = s.devices.filter((d) => d.id !== id); writeJson(LS.devices, next); syncToCloudFull({ devices: next }); return { devices: next, selectedDeviceId: s.selectedDeviceId === id ? null : s.selectedDeviceId }; }),
@@ -394,9 +254,9 @@ const useStore = create<Store>((set, get) => ({
   deleteTask: (id) => set((s) => { const n = s.tasks.filter(t => t.id !== id); writeJson(LS.tasks, n); syncToCloudFull({tasks: n}); return {tasks: n} }),
 }));
 
-/* -----------------------------
-  Theme Tokens (Continued)
------------------------------ */
+/* ==========================================
+   UI Components & App
+========================================== */
 const ThemeTokens = () => {
   const style = useStore((s) => s.themeStyle);
   const presets: Record<ThemeStyle, { light: string; dark: string }> = {
@@ -409,13 +269,8 @@ const ThemeTokens = () => {
 };
 
 function useApplyTheme() { const theme = useStore((s) => s.theme); useEffect(() => { document.documentElement.classList.toggle("dark", theme === "dark"); }, [theme]); }
-function Switch({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean; }) {
-  return <button disabled={disabled} onClick={() => onChange(!on)} className={`w-11 h-6 rounded-full border transition-all ${disabled ? "opacity-50 cursor-not-allowed" : ""} ${on ? "bg-[rgba(0,255,0,0.12)] border-[rgba(0,255,0,0.7)]" : "bg-black/20 border-[var(--border)]"}`} style={{ boxShadow: on ? "0 0 16px rgba(0,255,0,0.25)" : "none" }}><span className="block w-5 h-5 rounded-full bg-white transition-all" style={{ transform: `translateX(${on ? "20px" : "2px"})` }} /></button>;
-}
+function Switch({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean; }) { return <button disabled={disabled} onClick={() => onChange(!on)} className={`w-11 h-6 rounded-full border transition-all ${disabled ? "opacity-50 cursor-not-allowed" : ""} ${on ? "bg-[rgba(0,255,0,0.12)] border-[rgba(0,255,0,0.7)]" : "bg-black/20 border-[var(--border)]"}`} style={{ boxShadow: on ? "0 0 16px rgba(0,255,0,0.25)" : "none" }}><span className="block w-5 h-5 rounded-full bg-white transition-all" style={{ transform: `translateX(${on ? "20px" : "2px"})` }} /></button>; }
 
-/* -----------------------------
-  Components
------------------------------ */
 function LoginPage() {
   const login = useStore(s => s.login); const [u, setU] = useState(""); const [p, setP] = useState(""); const [err, setErr] = useState<string|null>(null);
   return (
@@ -433,75 +288,44 @@ function LoginPage() {
   );
 }
 
-/* -----------------------------
-  Gantt Chart UI (Reusable)
------------------------------ */
 const RunbookGanttGrid = ({ tasks, dayIndex, readOnly }: { tasks: Task[], dayIndex: number, readOnly?: boolean }) => {
   const dayTasks = tasks.filter(t => t.dayIndex === dayIndex).sort((a,b) => a.startHH - b.startHH);
-  const lang = useStore(s => s.lang);
-  const getStatusIcon = (s: TaskStatus) => {
-    if (s === 'verified') return <CheckCircle2 size={12} className="text-white drop-shadow-md" />;
-    if (s === 'done') return <Check size={12} className="text-white drop-shadow-md" />;
-    if (s === 'in_progress') return <Play size={12} className="text-white drop-shadow-md animate-pulse" />;
-    return null;
-  };
+  const getStatusIcon = (s: TaskStatus) => { if (s === 'verified') return <CheckCircle2 size={12} className="text-white drop-shadow-md" />; if (s === 'done') return <Check size={12} className="text-white drop-shadow-md" />; if (s === 'in_progress') return <Play size={12} className="text-white drop-shadow-md animate-pulse" />; return null; };
   return (
     <div className="overflow-x-auto pb-4">
       <div className="min-w-[1000px] border border-[var(--border)] bg-[var(--panel2)] rounded-xl p-4 shadow-inner relative">
-        <div className="grid gap-1 mb-2" style={{ gridTemplateColumns: 'repeat(48, minmax(0, 1fr))' }}>
-          {Array.from({length: 24}).map((_, i) => (
-            <div key={i} className="col-span-2 text-[10px] font-bold text-[var(--muted)] border-l border-[var(--border)] pl-1">{String(i).padStart(2,'0')}:00</div>
-          ))}
-        </div>
+        <div className="grid gap-1 mb-2" style={{ gridTemplateColumns: 'repeat(48, minmax(0, 1fr))' }}>{Array.from({length: 24}).map((_, i) => (<div key={i} className="col-span-2 text-[10px] font-bold text-[var(--muted)] border-l border-[var(--border)] pl-1">{String(i).padStart(2,'0')}:00</div>))}</div>
         <div className="space-y-1.5 relative">
           {dayTasks.length === 0 && <div className="text-xs text-[var(--muted)] py-4 italic text-center">No tasks for this day.</div>}
           {dayTasks.map(t => (
             <div key={t.id} className="grid gap-1 items-center h-8" style={{ gridTemplateColumns: 'repeat(48, minmax(0, 1fr))' }}>
-              <div style={{ gridColumn: `${t.startHH + 1} / ${t.endHH + 1}`, backgroundColor: getVendorColor(t.vendor) }}
-                   className={`h-full rounded px-2 text-[10px] font-bold text-white flex items-center justify-between shadow-sm overflow-hidden ${t.status==='done'?'opacity-80':''} ${t.status==='verified'?'opacity-50 grayscale':''}`}
-                   title={`${formatHH(t.startHH)} - ${formatHH(t.endHH)} | ${t.title} (${t.vendor})`}>
-                <span className="truncate pr-1 drop-shadow-md">{t.title}</span>
-                <div className="flex items-center gap-1 shrink-0 bg-black/20 px-1 rounded shadow-inner">{getStatusIcon(t.status)}<span className="truncate max-w-[50px]">{t.vendor}</span></div>
-              </div>
+              <div style={{ gridColumn: `${t.startHH + 1} / ${t.endHH + 1}`, backgroundColor: getVendorColor(t.vendor) }} className={`h-full rounded px-2 text-[10px] font-bold text-white flex items-center justify-between shadow-sm overflow-hidden ${t.status==='done'?'opacity-80':''} ${t.status==='verified'?'opacity-50 grayscale':''}`} title={`${formatHH(t.startHH)} - ${formatHH(t.endHH)} | ${t.title} (${t.vendor})`}><span className="truncate pr-1 drop-shadow-md">{t.title}</span><div className="flex items-center gap-1 shrink-0 bg-black/20 px-1 rounded shadow-inner">{getStatusIcon(t.status)}<span className="truncate max-w-[50px]">{t.vendor}</span></div></div>
             </div>
           ))}
-          <div className="absolute inset-0 grid gap-1 pointer-events-none" style={{ gridTemplateColumns: 'repeat(48, minmax(0, 1fr))' }}>
-            {Array.from({length: 48}).map((_, i) => <div key={i} className={`border-l ${i%2===0 ? 'border-[var(--border)] opacity-40' : 'border-[var(--border)] opacity-10'} h-full`} />)}
-          </div>
+          <div className="absolute inset-0 grid gap-1 pointer-events-none" style={{ gridTemplateColumns: 'repeat(48, minmax(0, 1fr))' }}>{Array.from({length: 48}).map((_, i) => <div key={i} className={`border-l ${i%2===0 ? 'border-[var(--border)] opacity-40' : 'border-[var(--border)] opacity-10'} h-full`} />)}</div>
         </div>
       </div>
     </div>
   );
 };
 
-/* -----------------------------
-  Dashboard Components
------------------------------ */
-const DashboardGanttView = () => {
-  const tasks = useStore(s => s.tasks);
-  return <div className="h-[500px] xl:h-[600px] overflow-y-auto"><RunbookGanttGrid tasks={tasks} dayIndex={0} readOnly /></div>;
-};
+const DashboardGanttView = () => { const tasks = useStore(s => s.tasks); return <div className="h-[500px] xl:h-[600px] overflow-y-auto"><RunbookGanttGrid tasks={tasks} dayIndex={0} readOnly /></div>; };
 
 const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: Rack[] }) => {
-  const lang = useStore(s => s.lang);
-  const p1 = useMemo(() => racks.filter((r) => r.id.includes("AFT_A") || r.id.includes("AFT_B")), [racks]);
+  const lang = useStore(s => s.lang); const p1 = useMemo(() => racks.filter((r) => r.id.includes("AFT_A") || r.id.includes("AFT_B")), [racks]);
   return (
     <div className="flex gap-1.5 md:gap-2 lg:gap-3 overflow-x-auto w-full flex-1 min-h-[500px] xl:min-h-[600px] pb-2 scrollbar-hide snap-x">
       {p1.map(rack => {
-        const rackDevs = devices.filter(d => d.afterRackId === rack.id && d.afterStartU != null && d.afterEndU != null);
-        const displayName = getRackName(rack.id, lang);
+        const rackDevs = devices.filter(d => d.afterRackId === rack.id && d.afterStartU != null && d.afterEndU != null); const displayName = getRackName(rack.id, lang);
         return (
           <div key={rack.id} className="flex flex-col bg-slate-900 rounded-lg overflow-hidden flex-shrink-0 snap-center border border-slate-700 min-w-[120px] lg:min-w-0 flex-1">
             <div className="px-1 py-2 text-center text-xs xl:text-sm font-bold text-white truncate bg-emerald-600">{displayName}</div>
             <div className="relative w-full border-x-[4px] xl:border-x-[6px] border-t-[4px] xl:border-t-[6px] border-slate-600 bg-[#0b1220] shadow-inner flex-1">
               <div className="absolute inset-0 pointer-events-none z-10">
                 {rackDevs.map(d => {
-                  const sU=clampU(d.afterStartU??1); const eU=clampU(d.afterEndU??sU);
-                  const start=Math.min(sU,eU); const size=Math.abs(eU-sU)+1;
-                  const isAcc = d.category === "Accessory";
+                  const sU=clampU(d.afterStartU??1); const eU=clampU(d.afterEndU??sU); const start=Math.min(sU,eU); const size=Math.abs(eU-sU)+1; const isAcc = d.category === "Accessory";
                   return (
-                    <div key={d.id} className="absolute left-[2px] right-[2px] rounded flex justify-between items-center pl-1.5 md:pl-2 overflow-hidden shadow-md"
-                         style={{ bottom: `${((start-1)/42)*100}%`, height: `calc(${(size/42)*100}% - 2px)`, backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.2) 100%)" }}>
+                    <div key={d.id} className="absolute left-[2px] right-[2px] rounded flex justify-between items-center pl-1.5 md:pl-2 overflow-hidden shadow-md" style={{ bottom: `${((start-1)/42)*100}%`, height: `calc(${(size/42)*100}% - 2px)`, backgroundColor: catColor(d.category), backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.2) 100%)" }}>
                       <div className="flex-1 text-[9px] xl:text-[11px] 2xl:text-[13px] text-white font-medium truncate text-left drop-shadow-md pr-1">{isAcc ? d.name : d.deviceId}</div>
                       {!isAcc && <div className="flex shrink-0 bg-black/40 rounded-md p-1 mr-1 scale-[0.55] xl:scale-[0.65]"><LampsRow m={d.migration} /></div>}
                     </div>
@@ -517,77 +341,31 @@ const DashboardFullCarousel = ({ devices, racks }: { devices: Device[]; racks: R
 };
 
 const Dashboard = () => {
-  const devices = useStore((s) => s.devices);
-  const afterRacks = useStore((s) => s.afterRacks);
-  const lang = useStore((s) => s.lang);
-  
-  const validDevs = devices.filter(d => d.category !== "Accessory");
-  const total = validDevs.length;
-  const racked = validDevs.filter((d) => d.migration.racked).length;
-  const cabled = validDevs.filter((d) => d.migration.cabled).length;
-  const powered = validDevs.filter((d) => d.migration.powered).length;
-  const tested = validDevs.filter((d) => d.migration.tested).length;
-  const completed = validDevs.filter((d) => isMigratedComplete(d.migration)).length;
-  const pending = Math.max(0, total - completed);
-  const calcPct = (count: number) => total > 0 ? Math.round((count / total) * 100) : 0;
-
-  const chartData = [
-    { name: "NW", count: devices.filter(d=>d.category==="Network").length, fill: FIXED_COLORS.Network },
-    { name: "SRV", count: devices.filter(d=>d.category==="Server").length, fill: FIXED_COLORS.Server },
-    { name: "STG", count: devices.filter(d=>d.category==="Storage").length, fill: FIXED_COLORS.Storage },
-    { name: "OTH", count: devices.filter(d=>d.category==="Other").length, fill: FIXED_COLORS.Other }
-  ];
-
-  const [dashTab, setDashTab] = useState<"rack"|"gantt">("rack");
-  const [tvMode, setTvMode] = useState(false);
-
-  useEffect(() => {
-    if(!tvMode) return;
-    const t = setInterval(() => setDashTab(p => p === "rack" ? "gantt" : "rack"), 15000);
-    return () => clearInterval(t);
-  }, [tvMode]);
+  const devices = useStore((s) => s.devices); const afterRacks = useStore((s) => s.afterRacks); const lang = useStore((s) => s.lang);
+  const validDevs = devices.filter(d => d.category !== "Accessory"); const total = validDevs.length; const racked = validDevs.filter((d) => d.migration.racked).length; const cabled = validDevs.filter((d) => d.migration.cabled).length; const powered = validDevs.filter((d) => d.migration.powered).length; const tested = validDevs.filter((d) => d.migration.tested).length; const completed = validDevs.filter((d) => isMigratedComplete(d.migration)).length; const pending = Math.max(0, total - completed); const calcPct = (count: number) => total > 0 ? Math.round((count / total) * 100) : 0;
+  const chartData = [ { name: "NW", count: devices.filter(d=>d.category==="Network").length, fill: FIXED_COLORS.Network }, { name: "SRV", count: devices.filter(d=>d.category==="Server").length, fill: FIXED_COLORS.Server }, { name: "STG", count: devices.filter(d=>d.category==="Storage").length, fill: FIXED_COLORS.Storage }, { name: "OTH", count: devices.filter(d=>d.category==="Other").length, fill: FIXED_COLORS.Other } ];
+  const [dashTab, setDashTab] = useState<"rack"|"gantt">("rack"); const [tvMode, setTvMode] = useState(false);
+  useEffect(() => { if(!tvMode) return; const t = setInterval(() => setDashTab(p => p === "rack" ? "gantt" : "rack"), 15000); return () => clearInterval(t); }, [tvMode]);
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-[var(--panel)] border border-[var(--border)] p-4 md:p-6 rounded-2xl shadow-xl flex flex-col justify-center">
-          <div className="text-lg md:text-xl font-extrabold text-[var(--muted)] mb-1">{t("totalDevices", lang)}</div>
-          <div className="text-4xl md:text-5xl font-black text-[var(--accent)]">{total}</div>
-          <div className="flex gap-1.5 mt-2 flex-wrap">
-            {chartData.map(c => <span key={c.name} className="text-[9px] md:text-[10px] font-bold px-1.5 py-0.5 rounded border" style={{ color: c.fill, borderColor: c.fill, backgroundColor: `${c.fill}20` }}>{c.name}:{c.count}</span>)}
-          </div>
-        </div>
-        <div className="bg-[var(--panel)] border border-[var(--border)] p-4 md:p-6 rounded-2xl shadow-xl flex flex-col justify-center">
-          <div className="flex justify-between items-end mb-1"><div className="text-lg md:text-xl font-extrabold text-[var(--muted)]">{t("pending", lang)}</div><div className="text-sm font-bold text-red-500">{calcPct(pending)}%</div></div>
-          <div className="text-3xl md:text-4xl font-black text-red-500 drop-shadow-md">{pending}</div>
-          <div className="mt-3 w-full h-1.5 bg-black/10 dark:bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-red-500 transition-all duration-1000" style={{ width: `${calcPct(pending)}%` }} /></div>
-        </div>
-        <div className="bg-[var(--panel)] border border-[var(--border)] p-4 md:p-6 rounded-2xl shadow-xl flex flex-col justify-center">
-          <div className="flex justify-between items-end mb-1"><div className="text-lg md:text-xl font-extrabold text-[var(--muted)]">{t("completed", lang)}</div><div className="text-sm font-bold text-green-500">{calcPct(completed)}%</div></div>
-          <div className="flex items-baseline gap-2"><div className="text-3xl md:text-4xl font-black text-green-500 drop-shadow-md">{completed}</div><div className="text-sm text-[var(--muted)] font-bold">/ {total}</div></div>
-          <div className="mt-3 w-full h-1.5 bg-black/10 dark:bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-green-500 transition-all duration-1000" style={{ width: `${calcPct(completed)}%` }} /></div>
-        </div>
+        <div className="bg-[var(--panel)] border border-[var(--border)] p-4 md:p-6 rounded-2xl shadow-xl flex flex-col justify-center"><div className="text-lg md:text-xl font-extrabold text-[var(--muted)] mb-1">{t("totalDevices", lang)}</div><div className="text-4xl md:text-5xl font-black text-[var(--accent)]">{total}</div><div className="flex gap-1.5 mt-2 flex-wrap">{chartData.map(c => <span key={c.name} className="text-[9px] md:text-[10px] font-bold px-1.5 py-0.5 rounded border" style={{ color: c.fill, borderColor: c.fill, backgroundColor: `${c.fill}20` }}>{c.name}:{c.count}</span>)}</div></div>
+        <div className="bg-[var(--panel)] border border-[var(--border)] p-4 md:p-6 rounded-2xl shadow-xl flex flex-col justify-center"><div className="flex justify-between items-end mb-1"><div className="text-lg md:text-xl font-extrabold text-[var(--muted)]">{t("pending", lang)}</div><div className="text-sm font-bold text-red-500">{calcPct(pending)}%</div></div><div className="text-3xl md:text-4xl font-black text-red-500 drop-shadow-md">{pending}</div><div className="mt-3 w-full h-1.5 bg-black/10 dark:bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-red-500 transition-all duration-1000" style={{ width: `${calcPct(pending)}%` }} /></div></div>
+        <div className="bg-[var(--panel)] border border-[var(--border)] p-4 md:p-6 rounded-2xl shadow-xl flex flex-col justify-center"><div className="flex justify-between items-end mb-1"><div className="text-lg md:text-xl font-extrabold text-[var(--muted)]">{t("completed", lang)}</div><div className="text-sm font-bold text-green-500">{calcPct(completed)}%</div></div><div className="flex items-baseline gap-2"><div className="text-3xl md:text-4xl font-black text-green-500 drop-shadow-md">{completed}</div><div className="text-sm text-[var(--muted)] font-bold">/ {total}</div></div><div className="mt-3 w-full h-1.5 bg-black/10 dark:bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-green-500 transition-all duration-1000" style={{ width: `${calcPct(completed)}%` }} /></div></div>
       </div>
-
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[{ label: t("racked", lang), val: racked }, { label: t("cabled", lang), val: cabled }, { label: t("powered", lang), val: powered }, { label: t("tested", lang), val: tested }].map((item, idx) => (
-          <div key={idx} className="bg-[var(--panel2)] border border-[var(--border)] p-3 md:p-4 rounded-xl flex flex-col">
-            <div className="text-xs md:text-sm font-black text-[var(--muted)] mb-2">{item.label}</div>
-            <div className="flex items-baseline justify-between mb-2"><div className="text-xl md:text-2xl font-black text-[var(--text)]">{item.val}</div><div className="text-[10px] md:text-xs font-bold text-[var(--accent)]">{calcPct(item.val)}%</div></div>
-            <div className="w-full h-1 bg-black/10 dark:bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-[var(--accent)] transition-all" style={{ width: `${calcPct(item.val)}%` }} /></div>
-          </div>
+          <div key={idx} className="bg-[var(--panel2)] border border-[var(--border)] p-3 md:p-4 rounded-xl flex flex-col"><div className="text-xs md:text-sm font-black text-[var(--muted)] mb-2">{item.label}</div><div className="flex items-baseline justify-between mb-2"><div className="text-xl md:text-2xl font-black text-[var(--text)]">{item.val}</div><div className="text-[10px] md:text-xs font-bold text-[var(--accent)]">{calcPct(item.val)}%</div></div><div className="w-full h-1 bg-black/10 dark:bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-[var(--accent)] transition-all" style={{ width: `${calcPct(item.val)}%` }} /></div></div>
         ))}
       </div>
-
       <div className="bg-[var(--panel)] border border-[var(--border)] p-4 md:p-6 rounded-2xl shadow-xl flex flex-col w-full lg:col-span-2">
         <div className="flex flex-wrap w-full justify-between items-center mb-4 gap-3">
           <div className="flex bg-[var(--panel2)] border border-[var(--border)] rounded-xl p-1">
             <button onClick={()=>setDashTab("rack")} className={`px-4 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 ${dashTab==='rack'?'bg-[var(--accent)] text-black shadow':'text-[var(--text)] hover:bg-white/5'}`}><Server size={16}/> {t("rackStatus", lang)}</button>
             <button onClick={()=>setDashTab("gantt")} className={`px-4 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 ${dashTab==='gantt'?'bg-[var(--accent)] text-black shadow':'text-[var(--text)] hover:bg-white/5'}`}><CalendarClock size={16}/> {t("navRunbook", lang)}</button>
           </div>
-          <button onClick={()=>setTvMode(!tvMode)} className={`px-4 py-2 rounded-xl text-sm font-extrabold flex items-center gap-2 transition-all ${tvMode ? 'bg-red-500 text-white animate-pulse' : 'border border-[var(--border)] text-[var(--text)] hover:bg-[var(--panel2)]'}`}>
-            {tvMode ? <><Tv size={16}/> {t("tvModeOn", lang)}</> : <><Tv size={16}/> {t("tvModeOff", lang)}</>}
-          </button>
+          <button onClick={()=>setTvMode(!tvMode)} className={`px-4 py-2 rounded-xl text-sm font-extrabold flex items-center gap-2 transition-all ${tvMode ? 'bg-red-500 text-white animate-pulse' : 'border border-[var(--border)] text-[var(--text)] hover:bg-[var(--panel2)]'}`}>{tvMode ? <><Tv size={16}/> {t("tvModeOn", lang)}</> : <><Tv size={16}/> {t("tvModeOff", lang)}</>}</button>
         </div>
         {dashTab === "rack" ? <DashboardFullCarousel devices={devices} racks={afterRacks} /> : <DashboardGanttView />}
       </div>
@@ -595,62 +373,24 @@ const Dashboard = () => {
   );
 };
 
-/* -----------------------------
-  ★ Runbook (Project Timeline)
------------------------------ */
 const RunbookPage = () => {
-  const lang = useStore(s => s.lang);
-  const role = useStore(s => s.role);
-  const user = useStore(s => s.userName);
-  const tasks = useStore(s => s.tasks);
-  const projectInfo = useStore(s => s.projectInfo);
-  const updateProjectInfo = useStore(s => s.updateProjectInfo);
-  const addTask = useStore(s => s.addTask);
-  const updateTaskStatus = useStore(s => s.updateTaskStatus);
-  const deleteTask = useStore(s => s.deleteTask);
-  const accounts = useStore(s => s.accounts);
-  const vendors = accounts.filter(a => a.role === 'vendor').map(a => a.username);
-
-  const [activeDay, setActiveDay] = useState(0);
-  const [setupOpen, setSetupOpen] = useState(false);
-  const [newTaskOpen, setNewTaskOpen] = useState(false);
-
-  const isAdmin = role === "admin";
+  const lang = useStore(s => s.lang); const role = useStore(s => s.role); const user = useStore(s => s.userName); const tasks = useStore(s => s.tasks); const projectInfo = useStore(s => s.projectInfo); const updateProjectInfo = useStore(s => s.updateProjectInfo); const addTask = useStore(s => s.addTask); const updateTaskStatus = useStore(s => s.updateTaskStatus); const deleteTask = useStore(s => s.deleteTask); const accounts = useStore(s => s.accounts); const vendors = accounts.filter(a => a.role === 'vendor').map(a => a.username);
+  const [activeDay, setActiveDay] = useState(0); const [setupOpen, setSetupOpen] = useState(false); const [newTaskOpen, setNewTaskOpen] = useState(false); const isAdmin = role === "admin";
 
   const SetupModal = () => {
-    const [sd, setSd] = useState(projectInfo.startDate);
-    const [d, setD] = useState(projectInfo.days);
+    const [sd, setSd] = useState(projectInfo.startDate); const [d, setD] = useState(projectInfo.days);
     return (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-        <div className="w-full max-w-sm rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 shadow-2xl">
-          <div className="text-xl font-black text-[var(--text)] mb-4">{t("rbSetup", lang)}</div>
-          <div className="space-y-4">
-            <div><label className="text-xs text-[var(--muted)]">{t("rbStart", lang)}</label><input type="date" className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)] outline-none" value={sd} onChange={(e) => setSd(e.target.value)} /></div>
-            <div><label className="text-xs text-[var(--muted)]">{t("rbDays", lang)}</label><input type="number" min={1} max={14} className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)] outline-none" value={d} onChange={(e) => setD(Number(e.target.value))} /></div>
-          </div>
-          <div className="mt-6 flex justify-end gap-3"><button onClick={()=>setSetupOpen(false)} className="px-4 py-2 rounded-xl text-[var(--text)]">{t("btnCancel", lang)}</button><button onClick={()=>{updateProjectInfo({startDate:sd, days:d}); setSetupOpen(false);}} className="px-4 py-2 rounded-xl bg-[var(--accent)] text-black font-bold">{t("btnSave", lang)}</button></div>
-        </div>
+        <div className="w-full max-w-sm rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 shadow-2xl"><div className="text-xl font-black text-[var(--text)] mb-4">{t("rbSetup", lang)}</div><div className="space-y-4"><div><label className="text-xs text-[var(--muted)]">{t("rbStart", lang)}</label><input type="date" className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)] outline-none" value={sd} onChange={(e) => setSd(e.target.value)} /></div><div><label className="text-xs text-[var(--muted)]">{t("rbDays", lang)}</label><input type="number" min={1} max={14} className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)] outline-none" value={d} onChange={(e) => setD(Number(e.target.value))} /></div></div><div className="mt-6 flex justify-end gap-3"><button onClick={()=>setSetupOpen(false)} className="px-4 py-2 rounded-xl text-[var(--text)]">{t("btnCancel", lang)}</button><button onClick={()=>{updateProjectInfo({startDate:sd, days:d}); setSetupOpen(false);}} className="px-4 py-2 rounded-xl bg-[var(--accent)] text-black font-bold">{t("btnSave", lang)}</button></div></div>
       </div>
     );
   };
 
   const NewTaskModal = () => {
-    const [tTitle, setTTitle] = useState(""); const [v, setV] = useState(vendors[0] || "");
-    const [sh, setSh] = useState(16); const [eh, setEh] = useState(20);
+    const [tTitle, setTTitle] = useState(""); const [v, setV] = useState(vendors[0] || ""); const [sh, setSh] = useState(16); const [eh, setEh] = useState(20);
     return (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-        <div className="w-full max-w-md rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 shadow-2xl">
-          <div className="text-xl font-black text-[var(--text)] mb-4">{t("rbAddTask", lang)} (Day {activeDay+1})</div>
-          <div className="space-y-4">
-            <div><label className="text-xs text-[var(--muted)]">{t("rbTaskName", lang)}</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]" value={tTitle} onChange={(e) => setTTitle(e.target.value)} /></div>
-            <div><label className="text-xs text-[var(--muted)]">{t("rbVendor", lang)}</label><select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)] outline-none" value={v} onChange={(e) => setV(e.target.value)}>{vendors.map(x=><option key={x} value={x}>{x}</option>)}</select></div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-xs text-[var(--muted)]">{t("rbStartTime", lang)}</label><select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]" value={sh} onChange={(e)=>setSh(Number(e.target.value))}>{Array.from({length:48}).map((_,i)=><option key={i} value={i}>{formatHH(i)}</option>)}</select></div>
-              <div><label className="text-xs text-[var(--muted)]">{t("rbEndTime", lang)}</label><select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]" value={eh} onChange={(e)=>setEh(Number(e.target.value))}>{Array.from({length:48}).map((_,i)=><option key={i+1} value={i+1} disabled={i+1<=sh}>{formatHH(i+1)}</option>)}</select></div>
-            </div>
-          </div>
-          <div className="mt-6 flex justify-end gap-3"><button onClick={()=>setNewTaskOpen(false)} className="px-4 py-2 rounded-xl text-[var(--text)]">{t("btnCancel", lang)}</button><button onClick={()=>{if(tTitle && v && eh>sh){addTask({title:tTitle, vendor:v, dayIndex:activeDay, startHH:sh, endHH:eh}); setNewTaskOpen(false);}}} className="px-4 py-2 rounded-xl bg-[var(--accent)] text-black font-bold">{t("btnSave", lang)}</button></div>
-        </div>
+        <div className="w-full max-w-md rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 shadow-2xl"><div className="text-xl font-black text-[var(--text)] mb-4">{t("rbAddTask", lang)} (Day {activeDay+1})</div><div className="space-y-4"><div><label className="text-xs text-[var(--muted)]">{t("rbTaskName", lang)}</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]" value={tTitle} onChange={(e) => setTTitle(e.target.value)} /></div><div><label className="text-xs text-[var(--muted)]">{t("rbVendor", lang)}</label><select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)] outline-none" value={v} onChange={(e) => setV(e.target.value)}>{vendors.map(x=><option key={x} value={x}>{x}</option>)}</select></div><div className="grid grid-cols-2 gap-4"><div><label className="text-xs text-[var(--muted)]">{t("rbStartTime", lang)}</label><select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]" value={sh} onChange={(e)=>setSh(Number(e.target.value))}>{Array.from({length:48}).map((_,i)=><option key={i} value={i}>{formatHH(i)}</option>)}</select></div><div><label className="text-xs text-[var(--muted)]">{t("rbEndTime", lang)}</label><select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text)]" value={eh} onChange={(e)=>setEh(Number(e.target.value))}>{Array.from({length:48}).map((_,i)=><option key={i+1} value={i+1} disabled={i+1<=sh}>{formatHH(i+1)}</option>)}</select></div></div></div><div className="mt-6 flex justify-end gap-3"><button onClick={()=>setNewTaskOpen(false)} className="px-4 py-2 rounded-xl text-[var(--text)]">{t("btnCancel", lang)}</button><button onClick={()=>{if(tTitle && v && eh>sh){addTask({title:tTitle, vendor:v, dayIndex:activeDay, startHH:sh, endHH:eh}); setNewTaskOpen(false);}}} className="px-4 py-2 rounded-xl bg-[var(--accent)] text-black font-bold">{t("btnSave", lang)}</button></div></div>
       </div>
     );
   };
@@ -663,22 +403,7 @@ const RunbookPage = () => {
         {dayTasks.map(t => {
           const isMyTask = isAdmin || user === t.vendor;
           return (
-            <div key={t.id} className={`p-4 rounded-2xl border bg-[var(--panel)] shadow-sm ${isMyTask ? 'border-[var(--accent)]/50' : 'border-[var(--border)] opacity-80'}`}>
-              <div className="flex justify-between items-start mb-2">
-                <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full" style={{backgroundColor:getVendorColor(t.vendor)}}/><span className="text-xs font-bold text-[var(--text)]">{t.vendor}</span></div>
-                <div className="text-[10px] font-bold px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--panel2)] text-[var(--text)]">{formatHH(t.startHH)} - {formatHH(t.endHH)}</div>
-              </div>
-              <div className="font-black text-[var(--text)] text-sm mb-3">{t.title}</div>
-              <div className="flex justify-between items-center pt-3 border-t border-[var(--border)]">
-                <div className="text-[10px] font-bold text-[var(--muted)] uppercase">{t.status.replace("_"," ")}</div>
-                <div className="flex gap-2">
-                  {isAdmin && <button onClick={()=>deleteTask(t.id)} className="p-1.5 text-red-500 rounded-lg hover:bg-white/5"><Trash2 size={14}/></button>}
-                  {isMyTask && t.status==='pending' && <button onClick={()=>updateTaskStatus(t.id, 'in_progress')} className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-bold">{t("btnStart", lang)}</button>}
-                  {isMyTask && t.status==='in_progress' && <button onClick={()=>updateTaskStatus(t.id, 'done')} className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-bold">{t("btnDone", lang)}</button>}
-                  {isAdmin && t.status==='done' && <button onClick={()=>updateTaskStatus(t.id, 'verified')} className="px-3 py-1.5 bg-[var(--accent)] text-black rounded-lg text-xs font-bold">{t("btnVerify", lang)}</button>}
-                </div>
-              </div>
-            </div>
+            <div key={t.id} className={`p-4 rounded-2xl border bg-[var(--panel)] shadow-sm ${isMyTask ? 'border-[var(--accent)]/50' : 'border-[var(--border)] opacity-80'}`}><div className="flex justify-between items-start mb-2"><div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full" style={{backgroundColor:getVendorColor(t.vendor)}}/><span className="text-xs font-bold text-[var(--text)]">{t.vendor}</span></div><div className="text-[10px] font-bold px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--panel2)] text-[var(--text)]">{formatHH(t.startHH)} - {formatHH(t.endHH)}</div></div><div className="font-black text-[var(--text)] text-sm mb-3">{t.title}</div><div className="flex justify-between items-center pt-3 border-t border-[var(--border)]"><div className="text-[10px] font-bold text-[var(--muted)] uppercase">{t.status.replace("_"," ")}</div><div className="flex gap-2">{isAdmin && <button onClick={()=>deleteTask(t.id)} className="p-1.5 text-red-500 rounded-lg hover:bg-white/5"><Trash2 size={14}/></button>}{isMyTask && t.status==='pending' && <button onClick={()=>updateTaskStatus(t.id, 'in_progress')} className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-bold">{t("btnStart", lang)}</button>}{isMyTask && t.status==='in_progress' && <button onClick={()=>updateTaskStatus(t.id, 'done')} className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-bold">{t("btnDone", lang)}</button>}{isAdmin && t.status==='done' && <button onClick={()=>updateTaskStatus(t.id, 'verified')} className="px-3 py-1.5 bg-[var(--accent)] text-black rounded-lg text-xs font-bold">{t("btnVerify", lang)}</button>}</div></div></div>
           )
         })}
       </div>
@@ -687,72 +412,28 @@ const RunbookPage = () => {
 
   return (
     <div className="p-4 md:p-6 h-full flex flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-4 md:mb-6">
-        <h2 className="text-xl md:text-2xl font-black text-[var(--text)] flex items-center gap-2"><CalendarClock className="text-[var(--accent)]"/> {t("rbTitle", lang)}</h2>
-        {isAdmin && (
-          <div className="flex gap-2">
-            <button onClick={()=>setSetupOpen(true)} className="px-3 py-1.5 md:px-4 md:py-2 rounded-xl border border-[var(--border)] text-[var(--text)] text-xs md:text-sm font-bold">{t("rbSetup", lang)}</button>
-            <button onClick={()=>setNewTaskOpen(true)} className="px-3 py-1.5 md:px-4 md:py-2 rounded-xl bg-[var(--accent)] text-black font-extrabold flex items-center gap-2 text-xs md:text-sm"><Plus size={16}/> {t("rbAddTask", lang)}</button>
-          </div>
-        )}
-      </div>
-
-      <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-hide">
-        {Array.from({length: projectInfo.days}).map((_, i) => (
-          <button key={i} onClick={()=>setActiveDay(i)} className={`shrink-0 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${activeDay===i ? 'bg-[var(--accent)] text-black border-[var(--accent)]' : 'bg-[var(--panel2)] border-[var(--border)] text-[var(--muted)] hover:bg-white/5'}`}>
-            Day {i+1}
-          </button>
-        ))}
-      </div>
-
-      <div className="hidden md:block flex-1 bg-[var(--panel)] border border-[var(--border)] rounded-2xl p-4 overflow-y-auto">
-        <RunbookGanttGrid tasks={tasks} dayIndex={activeDay} />
-      </div>
-
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-4 md:mb-6"><h2 className="text-xl md:text-2xl font-black text-[var(--text)] flex items-center gap-2"><CalendarClock className="text-[var(--accent)]"/> {t("rbTitle", lang)}</h2>{isAdmin && (<div className="flex gap-2"><button onClick={()=>setSetupOpen(true)} className="px-3 py-1.5 md:px-4 md:py-2 rounded-xl border border-[var(--border)] text-[var(--text)] text-xs md:text-sm font-bold">{t("rbSetup", lang)}</button><button onClick={()=>setNewTaskOpen(true)} className="px-3 py-1.5 md:px-4 md:py-2 rounded-xl bg-[var(--accent)] text-black font-extrabold flex items-center gap-2 text-xs md:text-sm"><Plus size={16}/> {t("rbAddTask", lang)}</button></div>)}</div>
+      <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-hide">{Array.from({length: projectInfo.days}).map((_, i) => (<button key={i} onClick={()=>setActiveDay(i)} className={`shrink-0 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${activeDay===i ? 'bg-[var(--accent)] text-black border-[var(--accent)]' : 'bg-[var(--panel2)] border-[var(--border)] text-[var(--muted)] hover:bg-white/5'}`}>Day {i+1}</button>))}</div>
+      <div className="hidden md:block flex-1 bg-[var(--panel)] border border-[var(--border)] rounded-2xl p-4 overflow-y-auto"><RunbookGanttGrid tasks={tasks} dayIndex={activeDay} /></div>
       <MobileTaskList />
-
       {setupOpen && <SetupModal />}
       {newTaskOpen && <NewTaskModal />}
     </div>
   );
 };
 
-/* -----------------------------
-  ★ System Guide Page
------------------------------ */
 const GuidePage = () => {
   const lang = useStore(s => s.lang);
   return (
     <div className="p-6 h-full overflow-y-auto max-w-4xl mx-auto space-y-6">
       <h2 className="text-2xl font-black text-[var(--accent)] flex items-center gap-2"><BookOpen /> {t("navGuide", lang)}</h2>
-      
-      <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-sm">
-        <h3 className="text-lg font-bold text-[var(--text)] mb-3 flex items-center gap-2"><span className="w-2 h-6 bg-[var(--accent)] rounded-full"></span> 1. System Architecture</h3>
-        <p className="text-sm text-[var(--muted)] leading-relaxed mb-4">MigratePro is a real-time data center migration dashboard. It tracks asset movement from legacy racks to new destination layouts. Roles are divided into Admin (full control), Cable (port routing), and Vendor (status updating).</p>
-      </div>
-
-      <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-sm">
-        <h3 className="text-lg font-bold text-[var(--text)] mb-3 flex items-center gap-2"><span className="w-2 h-6 bg-[var(--accent2)] rounded-full"></span> 2. Smart Cable Routing (SOP)</h3>
-        <ul className="text-sm text-[var(--muted)] space-y-2 list-disc pl-5">
-          <li>Do not manually type target rack U-space.</li>
-          <li>In Device Edit, use "Smart Cable Routing" to add a connection.</li>
-          <li>Select the target device from the dropdown. The system automatically computes the cross-rack cable labels!</li>
-          <li>Click "Export Labels" to download CSV for your label printer.</li>
-        </ul>
-      </div>
-
-      <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-sm">
-        <h3 className="text-lg font-bold text-[var(--text)] mb-3 flex items-center gap-2"><span className="w-2 h-6 bg-green-500 rounded-full"></span> 3. Accessory Category</h3>
-        <p className="text-sm text-[var(--muted)] leading-relaxed mb-2">Use the `Accessory` category for Shelf, Cable Managers, and Blanking Panels.</p>
-        <p className="text-sm text-[var(--muted)] leading-relaxed">Accessories are visually distinct (grey, no status lamps) and are automatically EXCLUDED from the Dashboard KPIs.</p>
-      </div>
+      <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-sm"><h3 className="text-lg font-bold text-[var(--text)] mb-3 flex items-center gap-2"><span className="w-2 h-6 bg-[var(--accent)] rounded-full"></span> 1. System Architecture</h3><p className="text-sm text-[var(--muted)] leading-relaxed mb-4">MigratePro is a real-time data center migration dashboard. It tracks asset movement from legacy racks to new destination layouts. Roles are divided into Admin (full control), Cable (port routing), and Vendor (status updating).</p></div>
+      <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-sm"><h3 className="text-lg font-bold text-[var(--text)] mb-3 flex items-center gap-2"><span className="w-2 h-6 bg-[var(--accent2)] rounded-full"></span> 2. Smart Cable Routing (SOP)</h3><ul className="text-sm text-[var(--muted)] space-y-2 list-disc pl-5"><li>Do not manually type target rack U-space.</li><li>In Device Edit, use "Smart Cable Routing" to add a connection.</li><li>Select the target device from the dropdown. The system automatically computes the cross-rack cable labels!</li><li>Click "Export Labels" to download CSV for your label printer.</li></ul></div>
+      <div className="bg-[var(--panel)] border border-[var(--border)] p-6 rounded-2xl shadow-sm"><h3 className="text-lg font-bold text-[var(--text)] mb-3 flex items-center gap-2"><span className="w-2 h-6 bg-green-500 rounded-full"></span> 3. Accessory Category</h3><p className="text-sm text-[var(--muted)] leading-relaxed mb-2">Use the `Accessory` category for Shelf, Cable Managers, and Blanking Panels.</p><p className="text-sm text-[var(--muted)] leading-relaxed">Accessories are visually distinct (grey, no status lamps) and are automatically EXCLUDED from the Dashboard KPIs.</p></div>
     </div>
   );
 };
 
-/* -----------------------------
-  Modals & Pages
------------------------------ */
 function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementMode; onClose: () => void; }) {
   const d = useStore((s) => s.devices.find((x) => x.id === id)); const devices = useStore((s) => s.devices); const setFlag = useStore((s) => s.setMigrationFlag); const clearPlacement = useStore((s) => s.clearPlacement); const updateDevice = useStore((s) => s.updateDevice); const role = useStore((s) => s.role); const lang = useStore((s) => s.lang);
   if (!d) return null; const isAccessory = d.category === "Accessory";
@@ -954,8 +635,90 @@ function DeviceModal({ title, deviceId, initial, onClose, onSave }: { title: str
 }
 
 /* -----------------------------
-  Main Application Layout
+  Pages
 ----------------------------- */
+const IssuesPage = () => {
+  const issues = useStore((s) => s.issues); const lang = useStore((s) => s.lang); const role = useStore((s) => s.role); const userName = useStore((s) => s.userName); const addIssue = useStore((s) => s.addIssue); const updateIssueStatus = useStore((s) => s.updateIssueStatus); const deleteIssue = useStore((s) => s.deleteIssue); const addIssueReply = useStore((s) => s.addIssueReply);
+  const [creating, setCreating] = useState(false); const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null); const isAdmin = role === "admin"; const selectedIssue = issues.find(i => i.id === selectedIssueId);
+
+  const NewIssueModal = () => {
+    const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
+    return (
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+        <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col">
+          <div className="p-4 md:p-6 border-b border-[var(--border)] flex justify-between items-center"><div className="text-xl font-black text-[var(--text)]">{t("addIssue", lang)}</div><button onClick={() => setCreating(false)} className="p-2 rounded-xl hover:bg-white/5"><X /></button></div>
+          <div className="p-4 md:p-6 flex-1 space-y-4"><div><label className="text-xs text-[var(--muted)]">{t("issueTitle", lang)}</label><input autoFocus className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)]" value={title} onChange={(e) => setTitle(e.target.value)} /></div><div><label className="text-xs text-[var(--muted)]">{t("issueDesc", lang)}</label><textarea className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)] min-h-[120px] text-[var(--text)]" value={desc} onChange={(e) => setDesc(e.target.value)} /></div></div>
+          <div className="p-4 md:p-6 border-t border-[var(--border)] flex justify-end gap-3"><button onClick={() => setCreating(false)} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 text-[var(--text)]">{t("btnCancel", lang)}</button><button onClick={() => { if(!title.trim()) return; addIssue(title, desc); setCreating(false); }} className="px-4 py-2 rounded-xl bg-[var(--accent)] text-black font-extrabold hover:opacity-90 flex items-center gap-2"><MessageSquare size={16}/> {t("issueSubmit", lang)}</button></div>
+        </motion.div>
+      </div>
+    );
+  };
+
+  const IssueDetailModal = ({ issue }: { issue: Issue }) => {
+    const [replyText, setReplyText] = useState("");
+    return (
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+        <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-2xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col max-h-[90dvh]">
+          <div className="p-4 md:p-6 border-b border-[var(--border)] flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex items-center gap-2 mb-1"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${issue.status === 'resolved' ? 'bg-green-500/10 text-green-500 border-green-500/30' : 'bg-red-500/10 text-red-500 border-red-500/30'}`}>{issue.status === 'resolved' ? t("issueResolved", lang) : t("issueOpen", lang)}</span><span className="text-xs text-[var(--muted)]">{formatDate(issue.createdAt)}</span></div><div className="text-xl font-black text-[var(--text)] break-words">{issue.title}</div></div><button onClick={() => setSelectedIssueId(null)} className="p-2 rounded-xl hover:bg-white/5 shrink-0"><X /></button></div>
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-[var(--bg)] space-y-4">
+            <div className="bg-[var(--panel)] border border-[var(--border)] rounded-2xl p-4 shadow-sm"><div className="flex items-center gap-2 mb-2"><div className="w-6 h-6 rounded-full bg-[var(--accent)] flex items-center justify-center text-black font-bold text-xs">{issue.author.charAt(0).toUpperCase()}</div><div className="text-sm font-bold text-[var(--text)]">{issue.author}</div></div><div className="text-sm text-[var(--text)] whitespace-pre-wrap break-words ml-8">{issue.description}</div></div>
+            {issue.replies.map(r => (<div key={r.id} className={`flex flex-col max-w-[85%] ${r.author === userName ? 'ml-auto items-end' : 'mr-auto items-start'}`}><div className="flex items-center gap-1.5 mb-1 px-1"><span className="text-[10px] font-bold text-[var(--muted)]">{r.author}</span><span className="text-[9px] text-[var(--muted)] opacity-60">{formatDate(r.createdAt)}</span></div><div className={`p-3 rounded-2xl text-sm whitespace-pre-wrap break-words shadow-sm ${r.author === userName ? 'bg-[var(--accent)] text-black rounded-tr-sm' : 'bg-[var(--panel)] border border-[var(--border)] text-[var(--text)] rounded-tl-sm'}`}>{r.text}</div></div>))}
+          </div>
+          <div className="p-4 md:p-6 border-t border-[var(--border)] bg-[var(--panel)] shrink-0">
+            <div className="flex gap-2"><input value={replyText} onChange={e => setReplyText(e.target.value)} onKeyDown={e => { if(e.key === 'Enter' && replyText.trim()){ addIssueReply(issue.id, replyText); setReplyText(""); } }} placeholder={t("replyText", lang)} className="flex-1 bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)]" /><button onClick={() => { if(!replyText.trim()) return; addIssueReply(issue.id, replyText); setReplyText(""); }} className="bg-[var(--text)] text-[var(--bg)] px-4 py-2.5 rounded-xl font-bold hover:opacity-90">{t("replySubmit", lang)}</button></div>
+            {isAdmin && (<div className="mt-4 flex items-center justify-between pt-4 border-t border-[var(--border)]"><button onClick={() => { deleteIssue(issue.id); setSelectedIssueId(null); }} className="text-xs text-red-500 hover:bg-red-500/10 px-3 py-1.5 rounded-lg flex items-center gap-1"><Trash2 size={14}/> {t("deleteIssue", lang)}</button><button onClick={() => updateIssueStatus(issue.id, issue.status === 'open' ? 'resolved' : 'open')} className={`text-xs px-4 py-1.5 rounded-lg font-bold flex items-center gap-1 ${issue.status === 'open' ? 'bg-green-500/20 text-green-500 hover:bg-green-500/30' : 'bg-[var(--panel2)] text-[var(--text)] hover:bg-white/10'}`}>{issue.status === 'open' ? <><CheckCircle2 size={14}/> {t("markResolved", lang)}</> : t("reopenIssue", lang)}</button></div>)}
+          </div>
+        </motion.div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="p-6 h-full flex flex-col">
+      <div className="flex flex-wrap gap-3 justify-between items-end mb-6"><div><h2 className="text-2xl font-black text-[var(--accent)] flex items-center gap-2"><AlertCircle /> {t("issuesTitle", lang)}</h2></div><button onClick={() => setCreating(true)} className="px-4 py-2 rounded-xl bg-[var(--accent)] text-black font-extrabold hover:opacity-90 flex items-center gap-2"><Plus size={16} /> {t("addIssue", lang)}</button></div>
+      {issues.length === 0 ? (<div className="flex-1 flex flex-col items-center justify-center text-[var(--muted)] opacity-60"><CheckCircle2 size={48} className="mb-4" /><div className="font-bold">{t("noIssues", lang)}</div></div>) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {issues.map(i => (<div key={i.id} onClick={() => setSelectedIssueId(i.id)} className="bg-[var(--panel)] border border-[var(--border)] p-4 rounded-2xl cursor-pointer hover:border-[var(--accent)] hover:shadow-[0_0_15px_rgba(34,211,238,0.1)] transition-all group"><div className="flex items-start justify-between gap-2 mb-2"><div className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${i.status === 'resolved' ? 'bg-green-500/10 text-green-500 border-green-500/30' : 'bg-red-500/10 text-red-500 border-red-500/30'}`}>{i.status === 'resolved' ? t("issueResolved", lang) : t("issueOpen", lang)}</div><div className="text-xs font-medium text-[var(--muted)] flex items-center gap-1"><MessageSquare size={12}/> {i.replies.length}</div></div><div className="font-bold text-lg text-[var(--text)] mb-1 truncate">{i.title}</div><div className="text-xs text-[var(--muted)] truncate mb-3">{i.description}</div><div className="flex items-center justify-between mt-auto pt-3 border-t border-[var(--border)]"><div className="flex items-center gap-1.5"><div className="w-5 h-5 rounded-full bg-[var(--panel2)] flex items-center justify-center text-[10px] font-bold text-[var(--text)]">{i.author.charAt(0).toUpperCase()}</div><span className="text-xs font-bold text-[var(--text)]">{i.author}</span></div><div className="text-[10px] text-[var(--muted)]">{formatDate(i.createdAt).split(" ")[0]}</div></div></div>))}
+        </div>
+      )}
+      {creating && <NewIssueModal />}{selectedIssue && <IssueDetailModal issue={selectedIssue} />}
+    </div>
+  );
+};
+
+const AdminPage = () => {
+  const role = useStore((s) => s.role); const accounts = useStore((s) => s.accounts); const upsertAccount = useStore((s) => s.upsertAccount); const deleteAccount = useStore((s) => s.deleteAccount); const lang = useStore((s) => s.lang);
+  const [editing, setEditing] = useState<Account | null>(null); const [creating, setCreating] = useState(false);
+  if (role !== "admin") return null;
+
+  const Modal = ({ title, initial, onClose }: { title: string; initial: Account; onClose: () => void; }) => {
+    const [a, setA] = useState<Account>(initial); const isAdminAccount = a.username === "admin";
+    return (
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+        <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col max-h-[85dvh]">
+          <div className="p-4 md:p-6 border-b border-[var(--border)] shrink-0 flex items-center justify-between"><div className="text-xl font-black flex items-center gap-2"><KeyRound className="text-[var(--accent)]" /> {title}</div><button onClick={onClose} className="p-2 rounded-xl hover:bg-white/5"><X /></button></div>
+          <div className="p-4 md:p-6 flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-xs text-[var(--muted)]">{t("account", lang)}</label><input className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)]" value={a.username} onChange={(e) => setA((p) => ({ ...p, username: e.target.value }))} disabled={!creating} /></div><div><label className="text-xs text-[var(--muted)]">{t("role", lang)}</label><select className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none text-[var(--text)]" value={a.role} onChange={(e) => setA((p) => ({ ...p, role: e.target.value as Role }))} disabled={isAdminAccount}><option value="admin">Admin</option><option value="cable">Cable</option><option value="vendor">Vendor</option></select></div><div className="md:col-span-2"><label className="text-xs text-[var(--muted)]">{t("password", lang)}</label><input type="password" className="mt-1 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)]" value={a.password} onChange={(e) => setA((p) => ({ ...p, password: e.target.value }))} /></div></div>
+          <div className="p-4 md:p-6 border-t border-[var(--border)] shrink-0 flex justify-end gap-3"><button onClick={onClose} className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 text-[var(--text)]">{t("btnCancel", lang)}</button><button onClick={() => { const res = upsertAccount(a); if (!res.ok) return alert(res.message); onClose(); }} className="px-4 py-2 rounded-xl bg-[var(--accent)] text-black font-extrabold hover:opacity-90 flex items-center gap-2"><Save size={16} /> {t("btnSave", lang)}</button></div>
+        </motion.div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="bg-[var(--panel)] border border-[var(--border)] rounded-2xl p-6"><div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="flex items-center gap-2"><Shield className="text-[var(--accent)]" /><div className="text-lg font-black text-[var(--text)]">{t("navAdmin", lang)}</div></div></div><button onClick={() => { setCreating(true); setEditing({ username: "", password: "", role: "vendor" }); }} className="bg-[var(--accent)] text-black px-4 py-2 rounded-xl font-extrabold flex items-center gap-2 hover:opacity-90"><Plus size={18} /> {t("addAccount", lang)}</button></div>
+        <div className="mt-5 bg-[var(--panel2)] border border-[var(--border)] rounded-2xl overflow-hidden"><table className="w-full text-left"><thead className="bg-black/20 text-[var(--muted)] text-xs uppercase tracking-wider"><tr><th className="px-4 py-3 font-semibold">{t("account", lang)}</th><th className="px-4 py-3 font-semibold">{t("role", lang)}</th><th className="px-4 py-3 font-semibold">{t("action", lang)}</th></tr></thead><tbody className="divide-y divide-[var(--border)]">{accounts.slice().sort((a, b) => a.username === "admin" ? -1 : b.username === "admin" ? 1 : a.username.localeCompare(b.username)).map((a) => (<tr key={a.username} className="hover:bg-white/[0.03]"><td className="px-4 py-3"><div className="font-black text-[var(--text)]">{a.username}</div></td><td className="px-4 py-3"><span className="text-xs px-2 py-1 rounded-lg border border-[var(--border)] text-[var(--muted)] capitalize">{a.role}</span></td><td className="px-4 py-3"><div className="flex gap-2 flex-wrap"><button onClick={() => { setCreating(false); setEditing(a); }} className="px-3 py-2 rounded-xl border border-[var(--border)] hover:bg-white/5 flex items-center gap-2 text-sm text-[var(--text)]"><Edit3 size={16} /> {t("btnEdit", lang)}</button><button onClick={() => { const res = deleteAccount(a.username); if (!res.ok) return alert(res.message); }} disabled={a.username === "admin"} className={`px-3 py-2 rounded-xl border border-[var(--border)] flex items-center gap-2 text-sm ${a.username === "admin" ? "opacity-50 cursor-not-allowed text-[var(--muted)]" : "hover:bg-white/5 text-red-400"}`}><Trash2 size={16} /> {t("btnDel", lang)}</button></div></td></tr>))}</tbody></table></div>
+      </div>
+      {editing && <Modal title={creating ? t("addAccount", lang) : t("editAccount", lang)} initial={editing} onClose={() => { setEditing(null); setCreating(false); }} />}
+    </div>
+  );
+};
+
+/* -----------------------------
+  App Skeleton & Routing
+----------------------------- */
+function useFullscreen() { const [isFs, setIsFs] = useState(false); useEffect(() => { const onChange = () => setIsFs(!!document.fullscreenElement); document.addEventListener("fullscreenchange", onChange); return () => document.removeEventListener("fullscreenchange", onChange); }, []); const toggle = async () => { try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); else await document.exitFullscreen(); } catch {} }; return { isFs, toggle }; }
+
 export default function App() {
   useApplyTheme();
 

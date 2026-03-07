@@ -2347,12 +2347,12 @@ const RackPlanner = ({ mode }: { mode: PlacementMode }) => {
 // --- Part 4 結束 ---
 // ==========================================
 // ==========================================
-// --- Part 5 開始 (約 第 1951 ~ 2650 行) ---
+// --- Part 5 開始 (最終完全體：第 1951 行起) ---
 // ==========================================
 
 /* -----------------------------
   設備詳細資訊視窗 (DeviceDetailModal)
-  ★ 包含雙向線路連動邏輯
+  ★ 實裝：雙向線路動態反向尋找與跨設備編輯
 ----------------------------- */
 function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementMode; onClose: () => void; }) {
   const d = useStore((s) => s.devices.find((x) => x.id === id));
@@ -2366,17 +2366,17 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
   if (!d) return null;
   const isAccessory = d.category === "Accessory";
 
-  // Outbound 狀態
+  // 本機狀態
   const [localNote, setLocalNote] = useState(d?.portMap || "");
   const [localConns, setLocalConns] = useState<Connection[]>(d?.connections || []);
 
-  // ★ Inbound 狀態 (動態反向尋找)
+  // ★ Inbound 狀態 (動態反向尋找誰連到我)
   const [originalIncoming] = useState<{sourceDevId: string, conn: Connection}[]>(() => {
     if (isAccessory) return [];
     const inc: { sourceDevId: string, conn: Connection }[] = [];
     devices.forEach(dev => {
       if (dev.id === id) return;
-      dev.connections.forEach(c => {
+      (dev.connections || []).forEach(c => {
         if (c.targetId === id) inc.push({ sourceDevId: dev.id, conn: c });
       });
     });
@@ -2386,50 +2386,32 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
   const [incomingConns, setIncomingConns] = useState([...originalIncoming]);
   const [deletedIncoming, setDeletedIncoming] = useState<string[]>([]);
 
-  const beforePos = d.beforeRackId && d.beforeStartU != null && d.beforeEndU != null ? `${getRackName(d.beforeRackId, lang)} ${d.beforeStartU}-${d.beforeEndU}U` : "-";
-  const afterPos = d.afterRackId && d.afterStartU != null && d.afterEndU != null ? `${getRackName(d.afterRackId, lang)} ${d.afterStartU}-${d.afterEndU}U` : "-";
+  const beforePos = d.beforeRackId && d.beforeStartU != null ? `${getRackName(d.beforeRackId, lang)} ${d.beforeStartU}-${d.beforeEndU}U` : "-";
+  const afterPos = d.afterRackId && d.afterStartU != null ? `${getRackName(d.afterRackId, lang)} ${d.afterStartU}-${d.afterEndU}U` : "-";
   
-  const allowLayout = canManageAssets(role);
   const allowEditPort = canEditPortMap(role);
-
   const isModified = localNote !== (d.portMap || "") || 
     JSON.stringify(localConns) !== JSON.stringify(d.connections || []) ||
     JSON.stringify(incomingConns) !== JSON.stringify(originalIncoming) ||
     deletedIncoming.length > 0;
 
-  // Outbound actions
+  // 對接編輯 Action
   const addConn = () => setLocalConns(p => [...p, { id: crypto.randomUUID(), localPort: '', targetId: '', targetPort: '' }]);
-  const updateConn = (i: number, k: keyof Connection, v: string) => {
-    const next = [...localConns]; 
-    next[i] = { ...next[i], [k]: v };
-    setLocalConns(next);
-  };
-  const removeConn = (i: number) => {
-    const next = [...localConns]; 
-    next.splice(i, 1);
-    setLocalConns(next);
-  };
-
-  // Inbound actions
+  const updateConn = (i: number, k: keyof Connection, v: string) => { const n = [...localConns]; n[i] = { ...n[i], [k]: v }; setLocalConns(n); };
+  const removeConn = (i: number) => { const n = [...localConns]; n.splice(i, 1); setLocalConns(n); };
+  
   const updateIncoming = (i: number, k: keyof Connection, v: string) => {
-    const next = [...incomingConns];
-    next[i] = { ...next[i], conn: { ...next[i].conn, [k]: v } };
-    setIncomingConns(next);
+    const n = [...incomingConns]; n[i] = { ...n[i], conn: { ...n[i].conn, [k]: v } }; setIncomingConns(n);
   };
   const removeIncoming = (i: number) => {
-    const removed = incomingConns[i];
-    setDeletedIncoming(p => [...p, removed.conn.id]);
-    const next = [...incomingConns];
-    next.splice(i, 1);
-    setIncomingConns(next);
+    const removed = incomingConns[i]; setDeletedIncoming(p => [...p, removed.conn.id]);
+    const n = [...incomingConns]; n.splice(i, 1); setIncomingConns(n);
   };
 
-  // ★ 跨設備同步儲存
+  // ★ 跨設備同步儲存邏輯
   const saveChanges = () => {
-    // 儲存自己的 outbound 與備註
     updateDevice(d.id, { portMap: localNote.trimEnd(), connections: localConns });
-
-    // 儲存修改的 inbound (更新別人肚子裡的資料)
+    // 更新別台機器裡的對接資料 (Incoming)
     incomingConns.forEach(inc => {
       const sourceDev = useStore.getState().devices.find(x => x.id === inc.sourceDevId);
       if (sourceDev) {
@@ -2439,42 +2421,28 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
         }
       }
     });
-
-    // 處理刪除的 inbound
+    // 處理被刪除的 Incoming
     deletedIncoming.forEach(connId => {
       const sourceDev = useStore.getState().devices.find(x => x.connections.some(c => c.id === connId));
       if (sourceDev) {
-        useStore.getState().updateDevice(sourceDev.id, { 
-          connections: sourceDev.connections.filter(c => c.id !== connId) 
-        });
+        useStore.getState().updateDevice(sourceDev.id, { connections: sourceDev.connections.filter(c => c.id !== connId) });
       }
     });
   };
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-      <motion.div 
-        initial={{ scale: 0.96, opacity: 0 }} 
-        animate={{ scale: 1, opacity: 1 }} 
-        className="w-full max-w-3xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col max-h-[90dvh]"
-      >
-        <div className="p-4 md:p-6 border-b border-[var(--border)] shrink-0 flex items-start justify-between gap-3">
+      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-3xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col max-h-[90dvh]">
+        <div className="p-5 md:p-6 border-b border-[var(--border)] shrink-0 flex items-start justify-between gap-3 bg-[var(--panel2)] rounded-t-3xl">
           <div className="min-w-0">
-            <div className="text-xs font-bold text-[var(--muted)] tracking-wider uppercase mb-1">
-              {t("detailTitle", lang)} {isAccessory && " (Accessory)"}
-            </div>
-            <div className="text-xl md:text-2xl font-black truncate text-[var(--text)]">
-              {isAccessory ? d.name : `${d.deviceId} · ${d.name}`}
-            </div>
-            <div className="text-sm font-medium text-[var(--muted)] truncate mt-1">
-              {isAccessory ? "-" : `${d.brand} / ${d.model} · ${d.ports} ports`} · <span className="text-[var(--accent)]">{d.sizeU}U</span>
-            </div>
+            <div className="text-[10px] font-black text-[var(--muted)] uppercase tracking-widest">{t("detailTitle", lang)}</div>
+            <div className="text-xl md:text-2xl font-black text-[var(--text)] truncate mt-1">{isAccessory ? d.name : `${d.deviceId} · ${d.name}`}</div>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><X /></button>
         </div>
         
-        <div className="p-4 md:p-6 flex-1 overflow-y-auto space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <div className="p-5 md:p-6 flex-1 overflow-y-auto space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="p-4 rounded-2xl border border-[var(--border)] bg-[var(--panel2)]">
               <div className="text-xs font-bold text-[var(--muted)]">{t("detailBefore", lang)}</div>
               <div className="font-black text-lg mt-1 text-[var(--text)]">{beforePos}</div>
@@ -2483,242 +2451,85 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
               <div className="text-xs font-bold text-[var(--accent)]">{t("detailAfter", lang)}</div>
               <div className="font-black text-lg mt-1 text-[var(--text)]">{afterPos}</div>
             </div>
-            
-            {!isAccessory && (
-              <div className="p-4 rounded-2xl border border-[var(--border)] bg-[var(--panel2)] md:col-span-2 flex justify-between items-center">
-                <div>
-                  <div className="text-xs font-bold text-[var(--muted)]">IP Address</div>
-                  <div className="font-mono text-base font-bold mt-1 text-[var(--text)]">{d.ip || "-"}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs font-bold text-[var(--muted)]">Serial Number (SN)</div>
-                  <div className="font-mono text-base font-bold mt-1 text-[var(--text)]">{d.serial || "-"}</div>
-                </div>
-              </div>
-            )}
           </div>
 
-          {/* ★ 智慧線路對接表 */}
           {!isAccessory && (
-            <div className="p-5 rounded-2xl border border-[var(--border)] bg-[var(--panel2)]">
+            <div className="p-5 rounded-2xl border border-[var(--border)] bg-[var(--panel2)] shadow-inner">
               <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center gap-2 font-black text-lg text-[var(--text)]">
-                  <Link2 className="text-[var(--accent)]" /> {t("cableRouting", lang)}
-                  <span className="text-xs font-bold text-[var(--muted)] ml-2 border border-[var(--border)] px-2 py-1 rounded-md bg-black/10">
-                    {t("autoGenLabels", lang)}
-                  </span>
-                </div>
-                {allowEditPort && (
-                  <button type="button" onClick={addConn} className="text-sm bg-[var(--accent)] text-black px-4 py-2 rounded-xl font-extrabold hover:opacity-90 flex items-center gap-2 transition-transform active:scale-95">
-                    <Plus size={16} /> {t("addConnection", lang)}
-                  </button>
-                )}
+                <div className="flex items-center gap-2 font-black text-[var(--text)]"><Link2 size={18} className="text-[var(--accent)]" /> {t("cableRouting", lang)}</div>
+                {allowEditPort && <button onClick={addConn} className="text-xs bg-[var(--accent)] text-black px-4 py-2 rounded-xl font-black hover:opacity-90 transition-all shadow-md"><Plus size={14} /> {t("addConnection", lang)}</button>}
               </div>
-
-              {(localConns.length === 0 && incomingConns.length === 0) ? (
-                <div className="text-sm text-[var(--muted)] italic text-center py-6 border border-dashed border-[var(--border)] rounded-xl">
-                  尚無建立任何線路對接。
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {/* Outbound 迴圈 */}
-                  {localConns.map((c, i) => {
-                    const target = devices.find(x => x.id === c.targetId);
-                    const targetName = target ? target.name : t("unknownDev", lang);
-                    const rId = mode === "before" ? d.beforeRackId : d.afterRackId;
-                    const u = mode === "before" ? d.beforeStartU : d.afterStartU;
-                    const trId = mode === "before" ? target?.beforeRackId : target?.afterRackId;
-                    const tu = mode === "before" ? target?.beforeStartU : target?.afterStartU;
-                    
-                    const myLabel = `${rId ? getRackName(rId, lang) : "-"}/${u||"-"}U/${d.name}/${c.localPort||"-"}`;
-                    const tLabel = `${trId ? getRackName(trId, lang) : "-"}/${tu||"-"}U/${targetName}/${c.targetPort||"-"}`;
-
-                    return (
-                      <div key={c.id} className="flex flex-col gap-3 bg-[var(--panel)] p-4 rounded-2xl border border-[var(--border)] shadow-sm">
-                        {allowEditPort && (
-                          <div className="flex flex-wrap md:flex-nowrap gap-3 items-center">
-                            <div className="text-[11px] font-black bg-[var(--accent)]/20 text-[var(--accent)] px-3 py-1.5 rounded-lg border border-[var(--accent)]/30 whitespace-nowrap">
-                              {t("outgoingConn", lang)}
-                            </div>
-                            <input 
-                              placeholder={t("localPort", lang)} 
-                              value={c.localPort} 
-                              onChange={e => updateConn(i, 'localPort', e.target.value)} 
-                              className="w-full md:w-[20%] bg-transparent border-b-2 border-[var(--border)] focus:border-[var(--accent)] text-sm p-1.5 outline-none text-[var(--text)] transition-colors" 
-                            />
-                            <span className="text-[var(--muted)] font-black hidden md:block">{'->'}</span>
-                            <select 
-                              value={c.targetId} 
-                              onChange={e => updateConn(i, 'targetId', e.target.value)} 
-                              className="flex-1 w-full md:w-0 bg-[var(--panel2)] border border-[var(--border)] rounded-xl text-sm p-2 outline-none text-[var(--text)] focus:border-[var(--accent)]"
-                            >
-                              <option value="">{t("selectDevice", lang)}</option>
-                              {devices.filter(x => x.id !== d.id && x.category !== "Accessory").map(x => (
-                                <option key={x.id} value={x.id}>{x.deviceId} - {x.name}</option>
-                              ))}
-                            </select>
-                            <input 
-                              placeholder={t("targetPort", lang)} 
-                              value={c.targetPort} 
-                              onChange={e => updateConn(i, 'targetPort', e.target.value)} 
-                              className="w-full md:w-[20%] bg-transparent border-b-2 border-[var(--border)] focus:border-[var(--accent)] text-sm p-1.5 outline-none text-[var(--text)] transition-colors" 
-                            />
-                            <button type="button" onClick={() => removeConn(i)} className="p-2 text-red-500 hover:bg-red-500/10 rounded-xl w-full md:w-auto flex justify-center transition-colors">
-                              <X size={18}/>
-                            </button>
-                          </div>
+              <div className="space-y-4">
+                {localConns.map((c, i) => {
+                   const target = devices.find(x => x.id === c.targetId);
+                   const targetName = target ? target.name : t("unknownDev", lang);
+                   return (
+                    <div key={c.id} className="bg-[var(--panel)] p-4 rounded-2xl border border-[var(--border)] shadow-sm">
+                      {allowEditPort && (
+                        <div className="flex flex-wrap md:flex-nowrap gap-3 items-center mb-3">
+                          <div className="text-[10px] font-black bg-[var(--accent)]/20 text-[var(--accent)] px-2 py-1 rounded">{t("outgoingConn", lang)}</div>
+                          <input value={c.localPort} onChange={e=>updateConn(i,'localPort',e.target.value)} className="w-20 bg-transparent border-b border-[var(--border)] text-xs p-1 outline-none text-[var(--text)]" placeholder="Port" />
+                          <select value={c.targetId} onChange={e=>updateConn(i,'targetId',e.target.value)} className="flex-1 bg-[var(--panel2)] text-xs p-2 rounded-xl border border-[var(--border)] outline-none text-[var(--text)]">
+                            <option value="">{t("selectDevice", lang)}</option>
+                            {devices.filter(x=>x.id!==d.id).map(x=><option key={x.id} value={x.id}>{x.deviceId || x.name}</option>)}
+                          </select>
+                          <input value={c.targetPort} onChange={e=>updateConn(i,'targetPort',e.target.value)} className="w-20 bg-transparent border-b border-[var(--border)] text-xs p-1 outline-none text-[var(--text)]" placeholder="Target Port" />
+                          <button onClick={()=>removeConn(i)} className="text-red-400 p-1 hover:bg-red-500/10 rounded"><X size={16}/></button>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-[10px] font-mono opacity-80 px-2">
+                        <div className="text-[var(--accent)]">LOCAL: {d.name}</div>
+                        <div className="text-[var(--muted)]">{'<--->'}</div>
+                        <div className="text-[var(--accent2)]">TARGET: {targetName}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {incomingConns.map((inc, i) => {
+                  const src = devices.find(x=>x.id===inc.sourceDevId);
+                  return (
+                    <div key={inc.conn.id} className="bg-blue-500/5 p-4 rounded-2xl border border-blue-500/20 shadow-sm">
+                      <div className="flex flex-wrap md:flex-nowrap gap-3 items-center">
+                        <div className="text-[10px] font-black bg-blue-500/20 text-blue-400 px-2 py-1 rounded">{t("incomingConn", lang)}</div>
+                        {allowEditPort ? (
+                          <>
+                            <input value={inc.conn.targetPort} onChange={e=>updateIncoming(i,'targetPort',e.target.value)} className="w-20 bg-transparent border-b border-blue-500/30 text-xs p-1 outline-none text-[var(--text)]" placeholder="Port" />
+                            <div className="flex-1 text-sm font-bold text-[var(--text)] truncate px-2">{src?.deviceId} - {src?.name}</div>
+                            <input value={inc.conn.localPort} onChange={e=>updateIncoming(i,'localPort',e.target.value)} className="w-20 bg-transparent border-b border-blue-500/30 text-xs p-1 outline-none text-[var(--text)]" placeholder="Target Port" />
+                            <button onClick={()=>removeIncoming(i)} className="text-red-400 p-1 hover:bg-red-500/10 rounded"><X size={16}/></button>
+                          </>
+                        ) : (
+                          <div className="text-sm font-bold">{src?.name} (Port: {inc.conn.localPort})</div>
                         )}
-                        <div className="flex flex-col md:flex-row gap-2 items-center text-xs mt-1 opacity-90">
-                          <div className="flex-1 w-full bg-black/20 dark:bg-white/5 border border-[var(--border)] px-3 py-2 rounded-lg text-center font-mono text-[var(--accent)] font-bold truncate tracking-wider shadow-inner">{myLabel}</div>
-                          <div className="text-[var(--muted)] font-black shrink-0 hidden md:block">{'⇄'}</div>
-                          <div className="flex-1 w-full bg-black/20 dark:bg-white/5 border border-[var(--border)] px-3 py-2 rounded-lg text-center font-mono text-[var(--accent2)] font-bold truncate tracking-wider shadow-inner">{tLabel}</div>
-                        </div>
                       </div>
-                    )
-                  })}
-
-                  {/* ★ Inbound 迴圈 */}
-                  {incomingConns.map((inc, i) => {
-                    const sourceDev = devices.find(x => x.id === inc.sourceDevId);
-                    const sourceName = sourceDev ? sourceDev.name : t("unknownDev", lang);
-                    const rId = mode === "before" ? d.beforeRackId : d.afterRackId;
-                    const u = mode === "before" ? d.beforeStartU : d.afterStartU;
-                    const trId = mode === "before" ? sourceDev?.beforeRackId : sourceDev?.afterRackId;
-                    const tu = mode === "before" ? sourceDev?.beforeStartU : sourceDev?.afterStartU;
-                    
-                    const myLabel = `${rId ? getRackName(rId, lang) : "-"}/${u||"-"}U/${d.name}/${inc.conn.targetPort||"-"}`;
-                    const tLabel = `${trId ? getRackName(trId, lang) : "-"}/${tu||"-"}U/${sourceName}/${inc.conn.localPort||"-"}`;
-
-                    return (
-                      <div key={inc.conn.id} className="flex flex-col gap-3 bg-[var(--panel)] p-4 rounded-2xl border border-[var(--border)] shadow-sm">
-                        {allowEditPort && (
-                          <div className="flex flex-wrap md:flex-nowrap gap-3 items-center">
-                            <div className="text-[11px] font-black bg-blue-500/20 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/30 whitespace-nowrap">
-                              {t("incomingConn", lang)}
-                            </div>
-                            <input 
-                              placeholder={t("localPort", lang)} 
-                              value={inc.conn.targetPort} 
-                              onChange={e => updateIncoming(i, 'targetPort', e.target.value)} 
-                              className="w-full md:w-[20%] bg-transparent border-b-2 border-[var(--border)] focus:border-[var(--accent)] text-sm p-1.5 outline-none text-[var(--text)] transition-colors" 
-                            />
-                            <span className="text-[var(--muted)] font-black hidden md:block">{'<-'}</span>
-                            <div className="flex-1 w-full md:w-0 bg-[var(--panel2)] border border-[var(--border)] rounded-xl text-sm font-bold p-2 text-[var(--text)] truncate">
-                              {sourceDev?.deviceId} - {sourceName}
-                            </div>
-                            <input 
-                              placeholder={t("targetPort", lang)} 
-                              value={inc.conn.localPort} 
-                              onChange={e => updateIncoming(i, 'localPort', e.target.value)} 
-                              className="w-full md:w-[20%] bg-transparent border-b-2 border-[var(--border)] focus:border-[var(--accent)] text-sm p-1.5 outline-none text-[var(--text)] transition-colors" 
-                            />
-                            <button type="button" onClick={() => removeIncoming(i)} className="p-2 text-red-500 hover:bg-red-500/10 rounded-xl w-full md:w-auto flex justify-center transition-colors">
-                              <X size={18}/>
-                            </button>
-                          </div>
-                        )}
-                        <div className="flex flex-col md:flex-row gap-2 items-center text-xs mt-1 opacity-90">
-                          <div className="flex-1 w-full bg-black/20 dark:bg-white/5 border border-[var(--border)] px-3 py-2 rounded-lg text-center font-mono text-[var(--accent)] font-bold truncate tracking-wider shadow-inner">{myLabel}</div>
-                          <div className="text-[var(--muted)] font-black shrink-0 hidden md:block">{'⇄'}</div>
-                          <div className="flex-1 w-full bg-black/20 dark:bg-white/5 border border-[var(--border)] px-3 py-2 rounded-lg text-center font-mono text-[var(--accent2)] font-bold truncate tracking-wider shadow-inner">{tLabel}</div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
-          {/* 一般備註 */}
           <div className="p-5 rounded-2xl border border-[var(--border)] bg-[var(--panel2)]">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-sm font-black text-[var(--text)]">{t("fNote", lang)}</div>
-              {!allowEditPort && <div className="text-[10px] font-bold text-[var(--muted)] border border-[var(--border)] px-2 py-1 rounded-md bg-black/10">Vendor ({t("readOnly", lang)})</div>}
-            </div>
-            {allowEditPort ? (
-              <textarea 
-                className="w-full bg-[var(--panel)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] transition-colors resize-none" 
-                rows={3} 
-                value={localNote} 
-                onChange={e => setLocalNote(e.target.value)} 
-                placeholder="輸入設備備註或特殊注意事項..."
-              />
-            ) : (
-              <div className="text-sm whitespace-pre-wrap break-words text-[var(--text)] bg-[var(--panel)] p-4 rounded-xl border border-[var(--border)]">
-                {d.portMap || "無備註內容"}
-              </div>
-            )}
+            <div className="text-xs font-black text-[var(--text)] mb-3">{t("fNote", lang)}</div>
+            {allowEditPort ? <textarea className="w-full bg-[var(--panel)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] resize-none" rows={3} value={localNote} onChange={e=>setLocalNote(e.target.value)} placeholder="..." /> : <div className="text-sm text-[var(--muted)] p-3 bg-[var(--panel)] rounded-xl">{d.portMap || "-"}</div>}
           </div>
 
-          {/* 儲存變更按鈕 (Float) */}
-          {allowEditPort && isModified && (
-            <div className="flex justify-end">
-              <button 
-                onClick={saveChanges} 
-                className="bg-[var(--accent)] text-black px-6 py-3 rounded-xl text-sm font-extrabold hover:opacity-90 shadow-lg shadow-[var(--accent)]/20 flex items-center gap-2 transition-transform active:scale-95"
-              >
-                <Save size={18} /> {t("btnSaveChanges", lang)}
-              </button>
-            </div>
-          )}
-
-          {/* 狀態切換面板 */}
           <div className="p-5 rounded-2xl border border-[var(--border)] bg-[var(--panel2)]">
-            <div className="flex items-center justify-between mb-4">
-              <div className="font-black text-lg text-[var(--text)]">{t("detailStatus", lang)}</div>
-              <LampsRow m={d.migration} isAccessory={isAccessory} />
-            </div>
-            {isAccessory ? (
-              <div className="text-sm text-[var(--muted)] bg-[var(--panel)] p-4 rounded-xl border border-[var(--border)] text-center">
-                {t("accessoryNoLamp", lang)}
-              </div>
-            ) : mode === "after" ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[var(--text)] bg-[var(--panel)] p-4 rounded-xl border border-[var(--border)]">
-                <div className="flex items-center justify-between p-2 hover:bg-white/5 rounded-lg transition-colors">
-                  <div className="text-sm font-bold">{t("racked", lang)}</div>
-                  <Switch on={d.migration.racked} onChange={(v) => canToggleFlags(role) && setFlag(d.id, { racked: v })} disabled={!canToggleFlags(role)} />
-                </div>
-                <div className="flex items-center justify-between p-2 hover:bg-white/5 rounded-lg transition-colors">
-                  <div className="text-sm font-bold">{t("cabled", lang)}</div>
-                  <Switch on={d.migration.cabled} onChange={(v) => canToggleFlags(role) && setFlag(d.id, { cabled: v })} disabled={!canToggleFlags(role)} />
-                </div>
-                <div className="flex items-center justify-between p-2 hover:bg-white/5 rounded-lg transition-colors">
-                  <div className="text-sm font-bold">{t("powered", lang)}</div>
-                  <Switch on={d.migration.powered} onChange={(v) => canToggleFlags(role) && setFlag(d.id, { powered: v })} disabled={!canToggleFlags(role)} />
-                </div>
-                <div className="flex items-center justify-between p-2 hover:bg-white/5 rounded-lg transition-colors">
-                  <div className="text-sm font-bold">{t("tested", lang)}</div>
-                  <Switch on={d.migration.tested} onChange={(v) => canToggleFlags(role) && setFlag(d.id, { tested: v })} disabled={!canToggleFlags(role)} />
-                </div>
-              </div>
-            ) : (
-              <div className="text-sm text-[var(--muted)] text-center py-4 bg-[var(--panel)] rounded-xl border border-[var(--border)]">
-                {t("onlyAfterToggle", lang)}
+            <div className="flex items-center justify-between mb-4"><div className="font-black text-lg text-[var(--text)]">{t("detailStatus", lang)}</div><LampsRow m={d.migration} isAccessory={isAccessory} /></div>
+            {mode === "after" && !isAccessory && (
+              <div className="grid grid-cols-2 gap-4 bg-[var(--panel)] p-4 rounded-xl shadow-inner">
+                <div className="flex items-center justify-between px-2"><span>Racked</span><Switch on={d.migration.racked} onChange={v=>setFlag(d.id,{racked:v})}/></div>
+                <div className="flex items-center justify-between px-2"><span>Cabled</span><Switch on={d.migration.cabled} onChange={v=>setFlag(d.id,{cabled:v})}/></div>
+                <div className="flex items-center justify-between px-2"><span>Powered</span><Switch on={d.migration.powered} onChange={v=>setFlag(d.id,{powered:v})}/></div>
+                <div className="flex items-center justify-between px-2"><span>Tested</span><Switch on={d.migration.tested} onChange={v=>setFlag(d.id,{tested:v})}/></div>
               </div>
             )}
           </div>
         </div>
 
-        <div className="p-4 md:p-6 border-t border-[var(--border)] bg-[var(--panel2)] rounded-b-3xl shrink-0 flex justify-between items-center">
-          {allowLayout ? (
-            <button 
-              onClick={() => { if (confirm("確定要清除此設備的位置嗎？")) clearPlacement(mode, d.id); onClose(); }} 
-              className="px-5 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--panel)] hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/50 text-sm font-bold text-[var(--text)] transition-all"
-            >
-              {t("btnClearPlace", lang)}
-            </button>
-          ) : (
-            <div className="text-xs font-bold text-[var(--muted)]">
-              {role === "cable" ? "Cable" : "Vendor"}：{t("cantLayout", lang)}
-            </div>
-          )}
-          <button 
-            onClick={onClose} 
-            className="px-6 py-2.5 rounded-xl bg-[var(--text)] text-[var(--bg)] font-black hover:opacity-90 transition-opacity"
-          >
-            {t("btnClose", lang)}
-          </button>
+        <div className="p-5 border-t border-[var(--border)] bg-[var(--panel2)] rounded-b-3xl flex justify-between items-center">
+          {allowEditPort && isModified && <button onClick={saveChanges} className="bg-[var(--accent)] text-black px-6 py-2.5 rounded-xl text-sm font-black shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center gap-2"><Save size={18}/> {t("btnSaveChanges", lang)}</button>}
+          <button onClick={onClose} className="px-8 py-2.5 rounded-xl bg-[var(--text)] text-[var(--bg)] font-black hover:opacity-90 transition-opacity ml-auto">{t("btnClose", lang)}</button>
         </div>
       </motion.div>
     </div>
@@ -2726,837 +2537,128 @@ function DeviceDetailModal({ id, mode, onClose }: { id: string; mode: PlacementM
 }
 
 /* -----------------------------
-  新增/編輯 設備視窗 (DeviceModal)
+  設備清單 (DevicesPage)
 ----------------------------- */
-function DeviceModal({ title, deviceId, initial, onClose, onSave }: { title: string; deviceId?: string | null; initial: DeviceDraft; onClose: () => void; onSave: (d: DeviceDraft) => void; }) {
-  const lang = useStore((s) => s.lang);
-  const devices = useStore((s) => s.devices);
-  const accOptions = getAccessoryOptions(lang);
-  
-  const isAcc = initial.category === "Accessory";
-  const [d, setD] = useState<DeviceDraft>({ ...initial, connections: initial.connections || [] });
-  const input = (k: keyof DeviceDraft) => (e: any) => setD((p) => ({ ...p, [k]: e.target.value } as any));
-
-  const [localConns, setLocalConns] = useState<Connection[]>(d.connections);
-
-  const [originalIncoming] = useState<{sourceDevId: string, conn: Connection}[]>(() => {
-    if (isAcc || !deviceId) return [];
-    const inc: { sourceDevId: string, conn: Connection }[] = [];
-    devices.forEach(dev => {
-      if (dev.id === deviceId) return;
-      dev.connections.forEach(c => {
-        if (c.targetId === deviceId) inc.push({ sourceDevId: dev.id, conn: c });
-      });
-    });
-    return inc;
-  });
-  
-  const [incomingConns, setIncomingConns] = useState([...originalIncoming]);
-  const [deletedIncoming, setDeletedIncoming] = useState<string[]>([]);
-
-  const handleAccSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
-    let autoU = 1; 
-    if (val.includes("2U")) autoU = 2;
-    setD(p => ({ ...p, name: val, sizeU: autoU }));
-  };
-
-  const addConn = () => setLocalConns(p => [...p, { id: crypto.randomUUID(), localPort: '', targetId: '', targetPort: '' }]);
-  const updateConn = (i: number, k: keyof Connection, v: string) => {
-    const next = [...localConns]; next[i] = { ...next[i], [k]: v };
-    setLocalConns(next);
-  };
-  const removeConn = (i: number) => {
-    const next = [...localConns]; next.splice(i, 1);
-    setLocalConns(next);
-  };
-
-  const updateIncoming = (i: number, k: keyof Connection, v: string) => {
-    const next = [...incomingConns];
-    next[i] = { ...next[i], conn: { ...next[i].conn, [k]: v } };
-    setIncomingConns(next);
-  };
-  const removeIncoming = (i: number) => {
-    const removed = incomingConns[i];
-    setDeletedIncoming(p => [...p, removed.conn.id]);
-    const next = [...incomingConns];
-    next.splice(i, 1);
-    setIncomingConns(next);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    let finalD = { ...d };
-    if (d.category === "Accessory") {
-      if (!finalD.name) finalD.name = accOptions[0];
-      if (!finalD.deviceId) finalD.deviceId = `ACC-${Math.floor(Math.random() * 9000) + 1000}`;
-    } else {
-      if (!finalD.deviceId.trim() || !finalD.name.trim()) return alert("Device ID and Name are required.");
-    }
-    
-    onSave({ 
-      ...finalD, 
-      ports: Number(finalD.ports) || 0, 
-      sizeU: Math.max(1, Math.min(42, Number(finalD.sizeU) || 1)), 
-      portMap: (finalD.portMap ?? "").trimEnd(), 
-      connections: localConns 
-    });
-
-    if (!isAcc && deviceId) {
-      incomingConns.forEach(inc => {
-        const sourceDev = useStore.getState().devices.find(x => x.id === inc.sourceDevId);
-        if (sourceDev) {
-          const newConns = sourceDev.connections.map(sc => sc.id === inc.conn.id ? inc.conn : sc);
-          if (JSON.stringify(sourceDev.connections) !== JSON.stringify(newConns)) {
-            useStore.getState().updateDevice(sourceDev.id, { connections: newConns });
-          }
-        }
-      });
-      deletedIncoming.forEach(connId => {
-        const sourceDev = useStore.getState().devices.find(x => x.connections.some(c => c.id === connId));
-        if (sourceDev) {
-          useStore.getState().updateDevice(sourceDev.id, { 
-            connections: sourceDev.connections.filter(c => c.id !== connId) 
-          });
-        }
-      });
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <motion.div 
-        initial={{ scale: 0.96, opacity: 0 }} 
-        animate={{ scale: 1, opacity: 1 }} 
-        className="w-full max-w-3xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col max-h-[90dvh]"
-      >
-        <div className="p-5 md:p-6 border-b border-[var(--border)] shrink-0 flex items-center justify-between gap-3 bg-[var(--panel2)] rounded-t-3xl">
-          <div className="text-xl font-black text-[var(--text)]">{title}</div>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><X size={20}/></button>
-        </div>
-        
-        <div className="p-5 md:p-6 flex-1 overflow-y-auto">
-          <form id="device-form" className="grid grid-cols-1 md:grid-cols-2 gap-5" onSubmit={handleSubmit}>
-            <div>
-              <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("fCat", lang)}</label>
-              <select 
-                className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] transition-colors" 
-                value={d.category} 
-                onChange={input("category") as any}
-              >
-                {(["Network", "Storage", "Server", "Accessory", "Other"] as DeviceCategory[]).map((x) => (
-                  <option key={x} value={x}>{x}</option>
-                ))}
-              </select>
-            </div>
-            
-            <div>
-              <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("fName", lang)}</label>
-              {d.category === "Accessory" ? (
-                <select 
-                  className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] transition-colors" 
-                  value={d.name} 
-                  onChange={handleAccSelect}
-                >
-                  <option value="" disabled>Select...</option>
-                  {accOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  {d.name && !accOptions.includes(d.name) && <option value={d.name}>{d.name} (Custom)</option>}
-                </select>
-              ) : (
-                <input 
-                  className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] transition-colors" 
-                  value={d.name} 
-                  onChange={input("name")} 
-                  placeholder="如：Core Switch"
-                />
-              )}
-            </div>
-
-            {d.category !== "Accessory" && (
-              <>
-                <div>
-                  <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("fId", lang)}</label>
-                  <input 
-                    className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] font-mono transition-colors" 
-                    value={d.deviceId} 
-                    onChange={input("deviceId")} 
-                    placeholder="如：SW-01" 
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("fBrand", lang)}</label>
-                  <input 
-                    className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] transition-colors" 
-                    value={d.brand} 
-                    onChange={input("brand")} 
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("fModel", lang)}</label>
-                  <input 
-                    className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] transition-colors" 
-                    value={d.model} 
-                    onChange={input("model")} 
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("fPorts", lang)}</label>
-                  <input 
-                    type="number" 
-                    min={0} 
-                    className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] transition-colors" 
-                    value={d.ports} 
-                    onChange={(e) => setD((p) => ({ ...p, ports: Number(e.target.value) || 0 }))} 
-                  />
-                </div>
-              </>
-            )}
-
-            <div>
-              <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("fU", lang)}</label>
-              <input 
-                type="number" 
-                min={1} 
-                max={42} 
-                className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] transition-colors" 
-                value={d.sizeU} 
-                onChange={(e) => setD((p) => ({ ...p, sizeU: Number(e.target.value) || 1 }))} 
-              />
-            </div>
-            
-            {d.category !== "Accessory" && (
-              <>
-                <div>
-                  <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("fIp", lang)}</label>
-                  <input 
-                    className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] font-mono transition-colors" 
-                    value={d.ip ?? ""} 
-                    onChange={input("ip")} 
-                    placeholder="10.0.0.10" 
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("fSn", lang)}</label>
-                  <input 
-                    className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] font-mono transition-colors" 
-                    value={d.serial ?? ""} 
-                    onChange={input("serial")} 
-                  />
-                </div>
-              </>
-            )}
-            
-            {/* ★ 智慧線路編輯區塊 */}
-            {d.category !== "Accessory" && (
-              <div className="md:col-span-2 mt-2 p-5 bg-[var(--panel)] border border-[var(--border)] rounded-2xl shadow-sm">
-                <div className="flex justify-between items-center mb-4">
-                  <label className="text-sm font-black text-[var(--text)] flex items-center gap-2">
-                    <Link2 size={18} className="text-[var(--accent)]" /> {t("cableRouting", lang)}
-                  </label>
-                  <button 
-                    type="button" 
-                    onClick={addConn} 
-                    className="text-xs bg-[var(--accent)] text-black px-4 py-2 rounded-xl font-extrabold hover:opacity-90 flex items-center gap-2 transition-transform active:scale-95 shadow-lg shadow-[var(--accent)]/20"
-                  >
-                    <Plus size={16} /> {t("addConnection", lang)}
-                  </button>
-                </div>
-                
-                {(localConns.length === 0 && incomingConns.length === 0) ? (
-                  <div className="text-sm text-[var(--muted)] italic text-center py-6 border border-dashed border-[var(--border)] rounded-xl">
-                    尚無連線。
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {/* Outbound */}
-                    {localConns.map((c, i) => (
-                      <div key={c.id} className="flex flex-wrap md:flex-nowrap gap-3 items-center bg-[var(--panel2)] p-3 rounded-xl border border-[var(--border)] shadow-inner">
-                        <div className="text-[11px] font-black bg-[var(--accent)]/20 text-[var(--accent)] px-3 py-1.5 rounded-lg border border-[var(--accent)]/30 whitespace-nowrap">
-                          {t("outgoingConn", lang)}
-                        </div>
-                        <input 
-                          placeholder={t("localPort", lang)} 
-                          value={c.localPort} 
-                          onChange={e => updateConn(i, 'localPort', e.target.value)} 
-                          className="w-full md:w-[20%] bg-transparent border-b-2 border-[var(--border)] focus:border-[var(--accent)] text-sm p-1.5 outline-none text-[var(--text)] transition-colors" 
-                        />
-                        <span className="text-[var(--muted)] font-black hidden md:block">{'->'}</span>
-                        <select 
-                          value={c.targetId} 
-                          onChange={e => updateConn(i, 'targetId', e.target.value)} 
-                          className="flex-1 w-full md:w-0 bg-[var(--panel)] border border-[var(--border)] rounded-xl text-sm p-2 outline-none text-[var(--text)] focus:border-[var(--accent)] shadow-sm"
-                        >
-                          <option value="">{t("selectDevice", lang)}</option>
-                          {devices.filter(x => x.id !== deviceId && x.category !== "Accessory").map(x => (
-                            <option key={x.id} value={x.id}>{x.deviceId} - {x.name}</option>
-                          ))}
-                        </select>
-                        <input 
-                          placeholder={t("targetPort", lang)} 
-                          value={c.targetPort} 
-                          onChange={e => updateConn(i, 'targetPort', e.target.value)} 
-                          className="w-full md:w-[20%] bg-transparent border-b-2 border-[var(--border)] focus:border-[var(--accent)] text-sm p-1.5 outline-none text-[var(--text)] transition-colors" 
-                        />
-                        <button type="button" onClick={() => removeConn(i)} className="p-2 text-red-500 hover:bg-red-500/10 rounded-xl w-full md:w-auto flex justify-center transition-colors">
-                          <X size={18}/>
-                        </button>
-                      </div>
-                    ))}
-                    
-                    {/* Inbound */}
-                    {incomingConns.map((inc, i) => {
-                      const sourceDev = devices.find(x => x.id === inc.sourceDevId);
-                      const sourceName = sourceDev ? sourceDev.name : t("unknownDev", lang);
-                      return (
-                        <div key={inc.conn.id} className="flex flex-wrap md:flex-nowrap gap-3 items-center bg-[var(--panel2)] p-3 rounded-xl border border-[var(--border)] shadow-inner">
-                          <div className="text-[11px] font-black bg-blue-500/20 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/30 whitespace-nowrap">
-                            {t("incomingConn", lang)}
-                          </div>
-                          <input 
-                            placeholder={t("localPort", lang)} 
-                            value={inc.conn.targetPort} 
-                            onChange={e => updateIncoming(i, 'targetPort', e.target.value)} 
-                            className="w-full md:w-[20%] bg-transparent border-b-2 border-[var(--border)] focus:border-[var(--accent)] text-sm p-1.5 outline-none text-[var(--text)] transition-colors" 
-                          />
-                          <span className="text-[var(--muted)] font-black hidden md:block">{'<-'}</span>
-                          <div className="flex-1 w-full md:w-0 bg-[var(--panel)] border border-[var(--border)] rounded-xl text-sm font-bold p-2 text-[var(--text)] truncate shadow-sm">
-                            {sourceDev?.deviceId} - {sourceName}
-                          </div>
-                          <input 
-                            placeholder={t("targetPort", lang)} 
-                            value={inc.conn.localPort} 
-                            onChange={e => updateIncoming(i, 'localPort', e.target.value)} 
-                            className="w-full md:w-[20%] bg-transparent border-b-2 border-[var(--border)] focus:border-[var(--accent)] text-sm p-1.5 outline-none text-[var(--text)] transition-colors" 
-                          />
-                          <button type="button" onClick={() => removeIncoming(i)} className="p-2 text-red-500 hover:bg-red-500/10 rounded-xl w-full md:w-auto flex justify-center transition-colors">
-                            <X size={18}/>
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="md:col-span-2">
-              <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("fNote", lang)}</label>
-              <textarea 
-                className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] transition-colors resize-none" 
-                rows={3} 
-                value={d.portMap ?? ""} 
-                onChange={(e) => { setD((p) => ({ ...p, portMap: e.target.value })); }} 
-              />
-            </div>
-          </form>
-        </div>
-
-        <div className="p-5 md:p-6 border-t border-[var(--border)] bg-[var(--panel2)] rounded-b-3xl shrink-0 flex justify-end gap-3">
-          <button 
-            type="button" 
-            onClick={onClose} 
-            className="px-5 py-2.5 rounded-xl border border-[var(--border)] hover:bg-white/5 text-[var(--text)] font-bold transition-colors"
-          >
-            {t("btnCancel", lang)}
-          </button>
-          <button 
-            type="submit" 
-            form="device-form" 
-            className="px-6 py-2.5 rounded-xl bg-[var(--accent)] text-black font-extrabold hover:opacity-90 shadow-lg shadow-[var(--accent)]/20 transition-transform active:scale-95"
-          >
-            {t("btnSave", lang)}
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-/* -----------------------------
-  CSV 匯入 Modal
------------------------------ */
-function FullCSVImportModal({ onClose }: { onClose: () => void }) {
-  const importFullCSV = useStore((s) => s.importFullCSV);
-  const lang = useStore((s) => s.lang);
-  const [drag, setDrag] = useState(false);
-
-  const handleFile = async (file: File) => {
-    const text = await file.text();
-    const res = importFullCSV(text);
-    if (!res.ok) alert(res.message);
-    else onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col">
-        <div className="p-6 shrink-0 border-b border-[var(--border)] bg-[var(--panel2)] rounded-t-3xl">
-          <div className="flex items-center justify-between">
-            <div className="text-xl font-black text-[var(--text)]">{t("importCsv", lang)}</div>
-            <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><X size={20}/></button>
-          </div>
-          <div className="mt-3 text-sm font-bold text-red-500 bg-red-500/10 px-3 py-2 rounded-lg border border-red-500/20">{t("warningImport", lang)}</div>
-          <div className="mt-5">
-            <button onClick={downloadFullCSVTemplate} className="px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--panel)] hover:bg-white/5 flex items-center gap-2 text-sm font-bold shadow-sm transition-colors">
-              <Download size={16} /> {t("template", lang)}
-            </button>
-          </div>
-        </div>
-        <div className="p-8 flex-1">
-          <label 
-            onDragEnter={() => setDrag(true)} 
-            onDragLeave={() => setDrag(false)} 
-            onDragOver={(e) => e.preventDefault()} 
-            onDrop={(e) => { e.preventDefault(); setDrag(false); const file = e.dataTransfer.files?.[0]; if (file) handleFile(file); }} 
-            className={`block w-full rounded-3xl border-2 border-dashed p-10 text-center cursor-pointer transition-all duration-200 ${drag ? "border-[var(--accent)] bg-[var(--accent)]/5 scale-[1.02]" : "border-[var(--border)] bg-[var(--panel2)] hover:bg-white/5"}`}
-          >
-            <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-black bg-gradient-to-br from-[var(--accent)] to-[var(--accent2)] shadow-lg">
-                <Upload size={28} />
-              </div>
-              <div className="font-black text-lg text-[var(--text)]">{t("dragHere", lang)}</div>
-              <div className="text-sm font-bold text-[var(--muted)]">{t("orClick", lang)}</div>
-            </div>
-          </label>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-function AppendCSVImportModal({ onClose }: { onClose: () => void }) {
-  const appendDevicesFromCSV = useStore((s) => s.appendDevicesFromCSV);
-  const lang = useStore((s) => s.lang);
-  const [drag, setDrag] = useState(false);
-
-  const handleFile = async (file: File) => {
-    const text = await file.text();
-    const res = appendDevicesFromCSV(text);
-    if (!res.ok) alert(res.message);
-    else onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col">
-        <div className="p-6 shrink-0 border-b border-[var(--border)] bg-[var(--panel2)] rounded-t-3xl">
-          <div className="flex items-center justify-between">
-            <div className="text-xl font-black flex items-center gap-2 text-[var(--accent)]">
-              <FilePlus size={24} /> {t("appendCsv", lang)}
-            </div>
-            <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><X size={20}/></button>
-          </div>
-          <div className="mt-3 text-sm font-bold text-[var(--text)] bg-[var(--panel)] px-3 py-2 rounded-lg border border-[var(--border)] shadow-sm">{t("warningAppend", lang)}</div>
-          <div className="mt-5">
-            <button onClick={downloadFullCSVTemplate} className="px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--panel)] hover:bg-white/5 flex items-center gap-2 text-sm font-bold shadow-sm transition-colors">
-              <Download size={16} /> {t("template", lang)}
-            </button>
-          </div>
-        </div>
-        <div className="p-8 flex-1">
-          <label 
-            onDragEnter={() => setDrag(true)} 
-            onDragLeave={() => setDrag(false)} 
-            onDragOver={(e) => e.preventDefault()} 
-            onDrop={(e) => { e.preventDefault(); setDrag(false); const file = e.dataTransfer.files?.[0]; if (file) handleFile(file); }} 
-            className={`block w-full rounded-3xl border-2 border-dashed p-10 text-center cursor-pointer transition-all duration-200 ${drag ? "border-[var(--accent)] bg-[var(--accent)]/5 scale-[1.02]" : "border-[var(--border)] bg-[var(--panel2)] hover:bg-white/5"}`}
-          >
-            <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-black bg-gradient-to-br from-green-400 to-[var(--accent)] shadow-lg">
-                <Plus size={32} />
-              </div>
-              <div className="font-black text-lg text-[var(--text)]">{t("dragHere", lang)}</div>
-              <div className="text-sm font-bold text-[var(--muted)]">{t("orClick", lang)}</div>
-            </div>
-          </label>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-/* -----------------------------
-  設備資產清單 (DevicesPage)
------------------------------ */
-type SortKey = "category" | "deviceId" | "name" | "brand" | "model" | "ports" | "sizeU" | "before" | "after" | "migration" | "complete";
-type SortDir = "asc" | "desc";
-
 const DevicesPage = () => {
   const devices = useStore((s) => s.devices);
+  const deleteDeviceById = useStore((s) => s.deleteDeviceById);
   const addDevice = useStore((s) => s.addDevice);
   const updateDevice = useStore((s) => s.updateDevice);
-  const deleteDeviceById = useStore((s) => s.deleteDeviceById);
-  const clearPlacement = useStore((s) => s.clearPlacement);
   const role = useStore((s) => s.role);
   const lang = useStore((s) => s.lang);
 
   const [isAdding, setIsAdding] = useState(false);
   const [editing, setEditing] = useState<Device | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
-  const [appendOpen, setAppendOpen] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("deviceId");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const allowManage = canManageAssets(role);
 
-  const sortToggle = (k: SortKey) => {
-    if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(k); setSortDir("asc"); }
-  };
-
-  const sorted = useMemo(() => {
-    const getBefore = (d: Device) => d.beforeRackId && d.beforeStartU != null ? `${getRackName(d.beforeRackId, lang)}-${String(d.beforeStartU).padStart(2,'0')}` : "";
-    const getAfter = (d: Device) => d.afterRackId && d.afterStartU != null ? `${getRackName(d.afterRackId, lang)}-${String(d.afterStartU).padStart(2,'0')}` : "";
-    
-    const getMigScore = (d: Device) => (d.migration.racked ? 1 : 0) + (d.migration.cabled ? 1 : 0) + (d.migration.powered ? 1 : 0) + (d.migration.tested ? 1 : 0);
-    
-    const cmp = (a: any, b: any) => {
-      if (a === b) return 0;
-      if (a == null) return -1;
-      if (b == null) return 1;
-      if (typeof a === "number" && typeof b === "number") return a - b;
-      return String(a).localeCompare(String(b));
-    };
-
-    return [...devices].sort((a, b) => {
-      let va: any; let vb: any;
-      switch (sortKey) {
-        case "category": va = a.category; vb = b.category; break;
-        case "deviceId": va = a.deviceId; vb = b.deviceId; break;
-        case "name": va = a.name; vb = b.name; break;
-        case "brand": va = a.brand; vb = b.brand; break;
-        case "model": va = a.model; vb = b.model; break;
-        case "ports": va = a.ports; vb = b.ports; break;
-        case "sizeU": va = a.sizeU; vb = b.sizeU; break;
-        case "before": va = getBefore(a); vb = getBefore(b); break;
-        case "after": va = getAfter(a); vb = getAfter(b); break;
-        case "migration": va = getMigScore(a); vb = getMigScore(b); break;
-        case "complete": va = isMigratedComplete(a.migration) ? 1 : 0; vb = isMigratedComplete(b.migration) ? 1 : 0; break;
-        default: va = a.deviceId; vb = b.deviceId;
-      }
-      return sortDir === "asc" ? cmp(va, vb) : -cmp(va, vb);
-    });
-  }, [devices, sortKey, sortDir, lang]);
-
-  const Th = ({ k, children, right }: { k: SortKey | "action" | "connections", children: React.ReactNode; right?: boolean; }) => (
-    <th className={`px-4 py-4 font-bold tracking-wider ${right ? "text-right" : ""}`}>
-      {k === "action" || k === "connections" ? (
-        <span className="whitespace-nowrap">{children}</span>
-      ) : (
-        <button onClick={() => sortToggle(k)} className="inline-flex items-center gap-1.5 hover:text-[var(--accent)] whitespace-nowrap transition-colors" title="Sort">
-          {children} <span className="text-[10px] text-[var(--accent)]">{sortKey === k ? (sortDir === "asc" ? "▲" : "▼") : ""}</span>
-        </button>
-      )}
-    </th>
-  );
-
   return (
-    <div className="p-4 md:p-6 h-full flex flex-col">
-      <div className="flex flex-wrap gap-4 justify-between items-end mb-6">
-        <div>
-          <h2 className="text-2xl font-black text-[var(--accent)] flex items-center gap-3">
-            <Server size={28} /> {t("deviceList", lang)}
-          </h2>
-        </div>
-        <div className="flex gap-2.5 flex-wrap">
-          <button onClick={() => downloadCableLabelsCSV(devices, lang)} className="px-4 py-2.5 rounded-xl border border-[var(--border)] text-[var(--text)] hover:bg-[var(--accent2)] hover:border-[var(--accent2)] hover:text-black transition-all flex items-center gap-2 text-sm font-bold bg-[var(--panel)] shadow-sm">
-            <Link2 size={16} /> {t("exportLabels", lang)}
-          </button>
-          
-          <button onClick={() => canExportCSV(role) && downloadFullCSV(devices)} className="px-4 py-2.5 rounded-xl border border-[var(--border)] text-[var(--text)] hover:bg-[var(--accent)] hover:border-[var(--accent)] hover:text-black transition-all flex items-center gap-2 text-sm font-bold bg-[var(--panel)] shadow-sm">
-            <Download size={16} /> {t("exportCsv", lang)}
-          </button>
-
-          {allowManage && (
-            <>
-              <button onClick={() => setAppendOpen(true)} className="px-4 py-2.5 rounded-xl border-2 border-dashed border-[var(--accent2)] text-[var(--accent2)] hover:bg-[var(--accent2)]/10 flex items-center gap-2 text-sm font-bold transition-colors">
-                <FilePlus size={16} /> {t("appendCsv", lang)}
-              </button>
-              
-              <button onClick={() => setImportOpen(true)} className="px-4 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--panel2)] text-[var(--muted)] hover:text-red-500 hover:border-red-500/50 flex items-center gap-2 text-xs font-bold transition-colors">
-                <Upload size={14} /> {t("importCsv", lang)}
-              </button>
-              
-              <button onClick={() => setIsAdding(true)} className="bg-[var(--accent)] text-black px-5 py-2.5 rounded-xl text-sm font-extrabold flex items-center gap-2 hover:opacity-90 shadow-lg shadow-[var(--accent)]/20 transition-transform active:scale-95">
-                <Plus size={18} /> {t("addDevice", lang)}
-              </button>
-            </>
-          )}
+    <div className="p-4 md:p-6 space-y-6">
+      <div className="flex flex-wrap gap-4 justify-between items-end">
+        <h2 className="text-2xl font-black text-[var(--accent)] flex items-center gap-3"><Server size={28} /> {t("deviceList", lang)}</h2>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => downloadCableLabelsCSV(devices, lang)} className="px-4 py-2.5 rounded-xl border border-[var(--border)] text-[var(--text)] hover:bg-[var(--accent2)] hover:text-black transition-all text-sm font-bold shadow-sm">Labels</button>
+          <button onClick={() => downloadFullCSV(devices)} className="px-4 py-2.5 rounded-xl border border-[var(--border)] text-[var(--text)] hover:bg-[var(--accent)] hover:text-black transition-all text-sm font-bold shadow-sm">CSV Export</button>
+          {allowManage && <button onClick={() => setIsAdding(true)} className="bg-[var(--accent)] text-black px-5 py-2.5 rounded-xl text-sm font-black flex items-center gap-2 hover:opacity-90 shadow-lg active:scale-95 transition-all"><Plus size={18} /> {t("addDevice", lang)}</button>}
         </div>
       </div>
 
-      <div className="bg-[var(--panel)] border border-[var(--border)] rounded-2xl overflow-hidden overflow-x-auto shadow-2xl flex-1 flex flex-col">
-        <div className="overflow-y-auto flex-1">
-          <table className="w-full text-left relative">
-            <thead className="bg-[var(--panel2)] text-[var(--muted)] text-xs uppercase tracking-wider sticky top-0 z-20 shadow-sm">
-              <tr>
-                <Th k="category">{t("cat", lang)}</Th>
-                <Th k="deviceId">{t("devId", lang)}</Th>
-                <Th k="name">{t("name", lang)}</Th>
-                <Th k="brand">{t("brand", lang)}</Th>
-                <Th k="model">{t("model", lang)}</Th>
-                <Th k="ports">{t("ports", lang)}</Th>
-                <Th k="sizeU">{t("sizeU", lang)}</Th>
-                <Th k="connections">🔗</Th>
-                <Th k="before">{t("before", lang)}</Th>
-                <Th k="after">{t("after", lang)}</Th>
-                <Th k="migration">{t("status", lang)}</Th>
-                <Th k="complete">{t("done", lang)}</Th>
-                <Th k="action" right>{t("action", lang)}</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border)]">
-              {sorted.map((d) => {
-                const before = d.beforeRackId && d.beforeStartU != null ? `${getRackName(d.beforeRackId, lang)} ${d.beforeStartU}-${d.beforeEndU}U` : "-";
-                const after = d.afterRackId && d.afterStartU != null ? `${getRackName(d.afterRackId, lang)} ${d.afterStartU}-${d.afterEndU}U` : "-";
-                const done = isMigratedComplete(d.migration);
-                const isAcc = d.category === "Accessory";
-                
-                // 計算與此設備有關的總線路數 (包含 outbound 與 inbound)
-                const outboundCount = d.connections?.length || 0;
-                const inboundCount = devices.filter(dev => dev.id !== d.id && dev.connections.some(c => c.targetId === d.id)).reduce((acc, dev) => acc + dev.connections.filter(c => c.targetId === d.id).length, 0);
-                const connCount = outboundCount + inboundCount;
-
-                return (
-                  <tr key={d.id} className="hover:bg-white/[0.03] transition-colors group text-[var(--text)]">
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-md border whitespace-nowrap tracking-wider" style={{ color: "white", borderColor: "rgba(255,255,255,0.2)", backgroundColor: catColor(d.category) }}>
-                        {d.category}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <div className="font-black text-sm whitespace-nowrap tracking-wide">{isAcc ? "-" : d.deviceId}</div>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <button onClick={() => useStore.getState().setSelectedDeviceId(d.id)} className="text-sm font-black text-[var(--text)] hover:text-[var(--accent)] whitespace-nowrap transition-colors" title="View Detail">
-                        {d.name}
-                      </button>
-                    </td>
-                    <td className="px-4 py-4 text-xs whitespace-nowrap font-medium">{isAcc ? "-" : d.brand}</td>
-                    <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap">{isAcc ? "-" : d.model}</td>
-                    <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap font-mono">{isAcc ? "-" : d.ports}</td>
-                    <td className="px-4 py-4 text-xs font-black text-[var(--accent)] whitespace-nowrap">{d.sizeU}U</td>
-                    
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      {connCount > 0 ? (
-                         <span className="text-[10px] font-black px-2 py-1 rounded-lg border border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10 shadow-sm">🔗 {connCount}</span>
-                      ) : <span className="text-xs text-[var(--muted)] opacity-50">-</span>}
-                    </td>
-
-                    <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap font-medium">{before}</td>
-                    <td className="px-4 py-4 text-xs text-[var(--muted)] whitespace-nowrap font-medium">{after}</td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      {isAcc ? <span className="text-[10px] text-[var(--muted)] opacity-50">-</span> : <LampsRow m={d.migration} />}
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      {isAcc ? (
-                        <span className="text-[10px] text-[var(--muted)] opacity-50">-</span>
-                      ) : (
-                        <span className="text-[10px] font-black px-2.5 py-1 rounded-md border tracking-wider" style={{ borderColor: done ? "rgba(34,197,94,0.5)" : "rgba(239,68,68,0.5)", color: done ? "#22c55e" : "#ef4444", background: done ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)" }}>
-                          {done ? t("statusDone", lang) : t("statusUndone", lang)}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-4 text-right whitespace-nowrap">
-                      {allowManage ? (
-                        <div className="flex justify-end gap-1.5 opacity-20 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => setEditing(d)} className="p-2 hover:bg-white/10 rounded-xl text-[var(--accent)] transition-colors"><Edit3 size={16} /></button>
-                          <button onClick={() => { clearPlacement("before", d.id); clearPlacement("after", d.id); }} className="px-3 py-2 rounded-xl border border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)] text-xs font-bold hover:bg-white/5 whitespace-nowrap transition-colors">{t("btnClear", lang)}</button>
-                          <button onClick={() => { if (confirm(`Delete ${d.deviceId || d.name}?`)) deleteDeviceById(d.id); }} className="p-2 hover:bg-red-500/10 hover:text-red-500 rounded-xl text-[var(--muted)] transition-colors"><Trash2 size={16} /></button>
-                        </div>
-                      ) : (<div className="text-xs text-[var(--muted)]">-</div>)}
-                    </td>
-                  </tr>
-                );
-              })}
-              {sorted.length === 0 && (
-                <tr>
-                  <td colSpan={13} className="px-6 py-20 text-center text-[var(--muted)]">
-                    <div className="flex flex-col items-center justify-center gap-3">
-                      <Server size={48} className="opacity-20" />
-                      <span className="font-bold">{t("noDevices", lang)}</span>
+      <div className="bg-[var(--panel)] border border-[var(--border)] rounded-2xl overflow-hidden shadow-2xl overflow-x-auto">
+        <table className="w-full text-left">
+          <thead className="bg-[var(--panel2)] text-[var(--muted)] text-[10px] font-black uppercase tracking-widest border-b border-[var(--border)]">
+            <tr>
+              <th className="px-5 py-4">{t("cat", lang)}</th>
+              <th className="px-5 py-4">{t("devId", lang)}</th>
+              <th className="px-5 py-4">{t("name", lang)}</th>
+              <th className="px-5 py-4">U</th>
+              <th className="px-5 py-4">Status</th>
+              <th className="px-5 py-4 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--border)]">
+            {devices.map(d => (
+              <tr key={d.id} className="hover:bg-white/[0.03] transition-colors group">
+                <td className="px-5 py-4"><span className="text-[10px] font-black px-2 py-1 rounded border border-white/10 shadow-sm" style={{ backgroundColor: catColor(d.category), color: 'white' }}>{d.category}</span></td>
+                <td className="px-5 py-4 font-black text-sm text-[var(--text)]">{d.deviceId || "-"}</td>
+                <td className="px-5 py-4"><button onClick={()=>useStore.getState().setSelectedDeviceId(d.id)} className="font-bold text-sm text-[var(--text)] hover:text-[var(--accent)] transition-colors">{d.name}</button></td>
+                <td className="px-5 py-4 font-black text-[var(--accent)]">{d.sizeU}U</td>
+                <td className="px-5 py-4"><LampsRow m={d.migration} isAccessory={d.category==='Accessory'} /></td>
+                <td className="px-5 py-4 text-right">
+                  {allowManage && (
+                    <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
+                      <button onClick={()=>setEditing(d)} className="p-2 text-[var(--accent)] hover:bg-[var(--accent)]/10 rounded-lg"><Edit3 size={18}/></button>
+                      <button onClick={()=>{if(confirm(`Delete ${d.name}?`)) deleteDeviceById(d.id)}} className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg"><Trash2 size={18}/></button>
                     </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {importOpen && <FullCSVImportModal onClose={() => setImportOpen(false)} />}
-      {appendOpen && <AppendCSVImportModal onClose={() => setAppendOpen(false)} />}
-      {isAdding && (
-        <DeviceModal 
-          title={t("addDeviceTitle", lang)} 
-          initial={{ category: "Other", deviceId: "", name: "", brand: "", model: "", ports: 8, sizeU: 1, ip: "", serial: "", portMap: "", connections: [] }} 
-          onClose={() => setIsAdding(false)} 
-          onSave={(d) => { addDevice(d); setIsAdding(false); }} 
-        />
-      )}
-      {editing && (
-        <DeviceModal 
-          title={t("editDeviceTitle", lang)} 
-          deviceId={editing.id} 
-          initial={{ category: editing.category, deviceId: editing.deviceId, name: editing.name, brand: editing.brand, model: editing.model, ports: editing.ports, sizeU: editing.sizeU, ip: editing.ip ?? "", serial: editing.serial ?? "", portMap: editing.portMap ?? "", connections: editing.connections ?? [] }} 
-          onClose={() => setEditing(null)} 
-          onSave={(d) => { updateDevice(editing.id, d); setEditing(null); }} 
-        />
-      )}
+      {isAdding && <DeviceModal title={t("addDeviceTitle", lang)} initial={{ category: "Other", deviceId: "", name: "", brand: "", model: "", ports: 8, sizeU: 1, connections: [] }} onClose={()=>setIsAdding(false)} onSave={d=>{addDevice(d); setIsAdding(false);}} />}
+      {editing && <DeviceModal title={t("editDeviceTitle", lang)} deviceId={editing.id} initial={{ category: editing.category, deviceId: editing.deviceId, name: editing.name, brand: editing.brand, model: editing.model, ports: editing.ports, sizeU: editing.sizeU, portMap: editing.portMap, connections: editing.connections }} onClose={()=>setEditing(null)} onSave={d=>{updateDevice(editing.id, d); setEditing(null);}} />}
     </div>
   );
 };
 
 /* -----------------------------
-  管理後台頁面 (AdminPage)
+  管理後台 (AdminPage)
 ----------------------------- */
 const AdminPage = () => {
-  const role = useStore((s) => s.role);
-  const accounts = useStore((s) => s.accounts);
-  const upsertAccount = useStore((s) => s.upsertAccount);
-  const deleteAccount = useStore((s) => s.deleteAccount);
-  const lang = useStore((s) => s.lang);
-  
+  const accounts = useStore(s => s.accounts);
+  const upsertAccount = useStore(s => s.upsertAccount);
+  const deleteAccount = useStore(s => s.deleteAccount);
+  const lang = useStore(s => s.lang);
   const [editing, setEditing] = useState<Account | null>(null);
   const [creating, setCreating] = useState(false);
 
-  if (role !== "admin") return null;
-
   const Modal = ({ title, initial, onClose }: { title: string; initial: Account; onClose: () => void; }) => {
     const [a, setA] = useState<Account>(initial);
-    const isAdminAccount = a.username === "admin";
-    
     return (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-        <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-md rounded-3xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl flex flex-col">
-          <div className="p-5 md:p-6 border-b border-[var(--border)] flex items-center justify-between bg-[var(--panel2)] rounded-t-3xl">
-            <div className="text-xl font-black flex items-center gap-2 text-[var(--text)]">
-              <KeyRound className="text-[var(--accent)]" /> {title}
-            </div>
-            <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/10 transition-colors"><X size={20}/></button>
+        <div className="w-full max-w-md bg-[var(--panel)] border border-[var(--border)] rounded-3xl p-6 shadow-2xl">
+          <div className="text-xl font-black text-[var(--text)] mb-6">{title}</div>
+          <div className="space-y-4">
+            <input value={a.username} onChange={e=>setA({...a,username:e.target.value})} className="w-full bg-[var(--panel2)] border border-[var(--border)] p-3 rounded-xl outline-none" placeholder="Account" disabled={!creating} />
+            <select value={a.role} onChange={e=>setA({...a,role:e.target.value as Role})} className="w-full bg-[var(--panel2)] border border-[var(--border)] p-3 rounded-xl outline-none">
+               <option value="vendor">Vendor</option><option value="cable">Cable</option><option value="admin">Admin</option>
+            </select>
+            <input type="password" value={a.password} onChange={e=>setA({...a,password:e.target.value})} className="w-full bg-[var(--panel2)] border border-[var(--border)] p-3 rounded-xl outline-none" placeholder="Password" />
           </div>
-          
-          <div className="p-5 md:p-6 space-y-4">
-            <div>
-              <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("account", lang)}</label>
-              <input 
-                className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] transition-colors" 
-                value={a.username} 
-                onChange={(e) => setA((p) => ({ ...p, username: e.target.value }))} 
-                disabled={!creating} 
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("role", lang)}</label>
-              <select 
-                className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] transition-colors" 
-                value={a.role} 
-                onChange={(e) => setA((p) => ({ ...p, role: e.target.value as Role }))} 
-                disabled={isAdminAccount}
-              >
-                <option value="admin">Admin (管理員)</option>
-                <option value="cable">Cable (佈線廠商)</option>
-                <option value="vendor">Vendor (設備原廠/物流)</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-[var(--muted)] ml-1">{t("password", lang)}</label>
-              <input 
-                type="password" 
-                className="mt-1.5 w-full bg-[var(--panel2)] border border-[var(--border)] rounded-xl px-4 py-3 text-sm outline-none focus:border-[var(--accent)] text-[var(--text)] transition-colors" 
-                value={a.password} 
-                onChange={(e) => setA((p) => ({ ...p, password: e.target.value }))} 
-              />
-            </div>
-          </div>
-          
-          <div className="p-5 md:p-6 border-t border-[var(--border)] flex justify-end gap-3 bg-[var(--panel2)] rounded-b-3xl">
-            <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-[var(--border)] hover:bg-white/5 text-[var(--text)] font-bold transition-colors">
-              {t("btnCancel", lang)}
-            </button>
-            <button 
-              onClick={() => { const res = upsertAccount(a); if (!res.ok) return alert("Account error"); onClose(); }} 
-              className="px-5 py-2.5 rounded-xl bg-[var(--accent)] text-black font-extrabold hover:opacity-90 flex items-center gap-2 shadow-lg shadow-[var(--accent)]/20 transition-transform active:scale-95"
-            >
-              <Save size={16} /> {t("btnSave", lang)}
-            </button>
-          </div>
-        </motion.div>
+          <div className="mt-8 flex justify-end gap-3"><button onClick={onClose} className="px-5 py-2">Cancel</button><button onClick={()=>{upsertAccount(a);onClose();}} className="bg-[var(--accent)] text-black px-6 py-2 rounded-xl font-black">Save</button></div>
+        </div>
       </div>
     );
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
+    <div className="p-6">
       <div className="bg-[var(--panel)] border border-[var(--border)] rounded-2xl p-6 shadow-xl">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <div className="flex items-center gap-3">
-            <Shield size={28} className="text-[var(--accent)]" />
-            <h2 className="text-2xl font-black text-[var(--text)]">{t("navAdmin", lang)}</h2>
-          </div>
-          <button 
-            onClick={() => { setCreating(true); setEditing({ username: "", password: "", role: "vendor" }); }} 
-            className="bg-[var(--accent)] text-black px-5 py-2.5 rounded-xl text-sm font-extrabold flex items-center gap-2 hover:opacity-90 shadow-lg shadow-[var(--accent)]/20 transition-transform active:scale-95"
-          >
-            <Plus size={18} /> {t("addAccount", lang)}
-          </button>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-black text-[var(--text)] flex items-center gap-3"><Shield className="text-[var(--accent)]" /> {t("navAdmin", lang)}</h2>
+          <button onClick={()=>{setCreating(true);setEditing({username:"",password:"",role:"vendor"});}} className="bg-[var(--accent)] text-black px-5 py-2 rounded-xl font-black shadow-lg shadow-[var(--accent)]/20 hover:scale-105 transition-all">Add Account</button>
         </div>
-        
-        <div className="bg-[var(--panel2)] border border-[var(--border)] rounded-2xl overflow-hidden shadow-inner">
-          <table className="w-full text-left">
-            <thead className="bg-black/10 text-[var(--muted)] text-xs uppercase tracking-wider border-b border-[var(--border)]">
-              <tr>
-                <th className="px-5 py-4 font-bold">{t("account", lang)}</th>
-                <th className="px-5 py-4 font-bold">{t("role", lang)}</th>
-                <th className="px-5 py-4 font-bold text-right">{t("action", lang)}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border)]">
-              {accounts.slice().sort((a, b) => a.username === "admin" ? -1 : b.username === "admin" ? 1 : a.username.localeCompare(b.username)).map((a) => (
-                <tr key={a.username} className="hover:bg-[var(--panel)] transition-colors group">
-                  <td className="px-5 py-4">
-                    <div className="font-black text-[var(--text)] text-lg flex items-center gap-2">
-                      <User size={16} className="text-[var(--muted)]" />
-                      {a.username}
-                    </div>
-                  </td>
-                  <td className="px-5 py-4">
-                    <span className="text-xs font-bold px-3 py-1 rounded-md border border-[var(--border)] bg-[var(--panel)] text-[var(--muted)] uppercase tracking-wider">
-                      {a.role}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex justify-end gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => { setCreating(false); setEditing(a); }} 
-                        className="p-2 rounded-xl border border-transparent hover:border-[var(--border)] hover:bg-[var(--panel)] text-[var(--accent)] transition-colors"
-                      >
-                        <Edit3 size={18} />
-                      </button>
-                      <button 
-                        onClick={() => { const res = deleteAccount(a.username); if (!res.ok) return alert(res.message); }} 
-                        disabled={a.username === "admin"} 
-                        className={`p-2 rounded-xl border border-transparent transition-colors ${a.username === "admin" ? "opacity-30 cursor-not-allowed text-[var(--muted)]" : "hover:border-red-500/30 hover:bg-red-500/10 text-red-500"}`}
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="grid gap-3">
+          {accounts.map(a => (
+            <div key={a.username} className="bg-[var(--panel2)] p-4 rounded-2xl border border-[var(--border)] flex justify-between items-center group">
+              <div><div className="font-black text-lg text-[var(--text)]">{a.username}</div><div className="text-[10px] text-[var(--muted)] font-bold uppercase tracking-widest">{a.role}</div></div>
+              <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                <button onClick={()=>{setCreating(false);setEditing(a);}} className="p-2 text-[var(--accent)]"><Edit3 size={18}/></button>
+                <button onClick={()=>{if(confirm('Delete?')) deleteAccount(a.username)}} className="p-2 text-red-500" disabled={a.username==='admin'}><Trash2 size={18}/></button>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
-      {editing && <Modal title={creating ? t("addAccount", lang) : t("editAccount", lang)} initial={editing} onClose={() => { setEditing(null); setCreating(false); }} />}
+      {editing && <Modal title={creating ? "Add Account" : "Edit Account"} initial={editing} onClose={()=>setEditing(null)} />}
     </div>
   );
 };
 
 /* -----------------------------
-  App Root Component & Layout
+  ★ 應用程式主入口 (App)
 ----------------------------- */
 function useFullscreen() {
   const [isFs, setIsFs] = useState(false);
@@ -3565,196 +2667,108 @@ function useFullscreen() {
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
-  const toggle = async () => { 
-    try { 
-      if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); 
-      else await document.exitFullscreen(); 
-    } catch {} 
-  };
+  const toggle = async () => { try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); else await document.exitFullscreen(); } catch {} };
   return { isFs, toggle };
 }
 
 export default function App() {
   useApplyTheme();
 
-  // 監聽 Firebase 資料更新 (One-way sync from cloud to local store)
+  // ★ 核心初始化：修復舊資料導致白畫面的邏輯
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "migratePro", "mainState"), (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
-        if (data.devices) {
-          const normalized = normalizeDevices(data.devices);
-          useStore.setState({ devices: normalized });
-          writeJson(LS.devices, normalized);
-        }
-        if (data.accounts) {
-          useStore.setState({ accounts: data.accounts });
-          writeJson(LS.accounts, data.accounts);
-        }
-        if (data.issues) {
-          useStore.setState({ issues: data.issues });
-          writeJson(LS.issues, data.issues);
-        }
-        if (data.tasks) {
-          useStore.setState({ tasks: data.tasks });
-          writeJson(LS.tasks, data.tasks);
-        }
-        if (data.projectInfo) {
-          useStore.setState({ projectInfo: data.projectInfo });
-          writeJson(LS.projectInfo, data.projectInfo);
-        }
+        // 嚴格確保每個欄位都有預設空值，避免 React 渲染 undefined 崩潰
+        useStore.setState({
+          devices: normalizeDevices(data.devices || []),
+          accounts: data.accounts || loadAccounts(),
+          issues: data.issues || [],
+          tasks: data.tasks || [],
+          projectInfo: data.projectInfo || { startDate: getTimestamp().slice(0, 10), days: 3 }
+        });
+        
+        // 同步回 LocalStorage
+        writeJson(LS.devices, data.devices || []);
+        writeJson(LS.accounts, data.accounts || loadAccounts());
+        writeJson(LS.issues, data.issues || []);
+        writeJson(LS.tasks, data.tasks || []);
+        writeJson(LS.projectInfo, data.projectInfo || { startDate: getTimestamp().slice(0, 10), days: 3 });
       } else {
-        // Init cloud state
+        // 初始化雲端資料庫
         const s = useStore.getState();
-        syncToCloudFull({ devices: s.devices, accounts: s.accounts, issues: s.issues, tasks: s.tasks, projectInfo: s.projectInfo });
+        syncToCloudFull(s);
       }
     });
     return () => unsub();
   }, []);
 
-  const isAuthed = useStore((s) => s.isAuthed);
-  const userName = useStore((s) => s.userName);
-  const role = useStore((s) => s.role);
-  const logout = useStore((s) => s.logout);
-  const page = useStore((s) => s.page);
-  const setPage = useStore((s) => s.setPage);
-  const theme = useStore((s) => s.theme);
-  const toggleTheme = useStore((s) => s.toggleTheme);
-  const themeStyle = useStore((s) => s.themeStyle);
-  const setThemeStyle = useStore((s) => s.setThemeStyle);
-  const lang = useStore((s) => s.lang);
-  const setLang = useStore((s) => s.setLang);
-  const ui = useStore((s) => s.ui);
-  const setUi = useStore((s) => s.setUi);
-  const selectedDeviceId = useStore((s) => s.selectedDeviceId);
-  const setSelectedDeviceId = useStore((s) => s.setSelectedDeviceId);
-  
+  const isAuthed = useStore(s => s.isAuthed);
+  const userName = useStore(s => s.userName);
+  const role = useStore(s => s.role);
+  const logout = useStore(s => s.logout);
+  const page = useStore(s => s.page);
+  const setPage = useStore(s => s.setPage);
+  const theme = useStore(s => s.theme);
+  const toggleTheme = useStore(s => s.toggleTheme);
+  const lang = useStore(s => s.lang);
+  const setLang = useStore(s => s.setLang);
+  const ui = useStore(s => s.ui);
+  const setUi = useStore(s => s.setUi);
+  const selectedDeviceId = useStore(s => s.selectedDeviceId);
+  const setSelectedDeviceId = useStore(s => s.setSelectedDeviceId);
   const { isFs, toggle: toggleFs } = useFullscreen();
-
-  const navItems = useMemo(() => {
-    const base = [
-      { id: "dashboard" as const, label: t("navDashboard", lang), icon: <LayoutDashboard size={20} /> },
-      { id: "devices" as const, label: t("navDevices", lang), icon: <Server size={20} /> },
-      { id: "before" as const, label: t("navBefore", lang), icon: <ArrowLeftRight size={20} /> },
-      { id: "after" as const, label: t("navAfter", lang), icon: <ArrowRightLeft size={20} /> },
-      { id: "runbook" as const, label: t("navRunbook", lang), icon: <CalendarClock size={20} /> },
-      { id: "issues" as const, label: t("navIssues", lang), icon: <AlertCircle size={20} /> },
-      { id: "guide" as const, label: t("navGuide", lang), icon: <BookOpen size={20} /> },
-    ];
-    if (role === "admin") {
-      base.push({ id: "admin" as const, label: t("navAdmin", lang), icon: <Shield size={20} /> });
-    }
-    return base;
-  }, [role, lang]);
 
   if (!isAuthed) return <LoginPage />;
 
+  const navItems = [
+    { id: "dashboard", label: t("navDashboard", lang), icon: <LayoutDashboard size={20} /> },
+    { id: "devices", label: t("navDevices", lang), icon: <Server size={20} /> },
+    { id: "before", label: t("navBefore", lang), icon: <ArrowLeftRight size={20} /> },
+    { id: "after", label: t("navAfter", lang), icon: <ArrowRightLeft size={20} /> },
+    { id: "runbook", label: t("navRunbook", lang), icon: <CalendarClock size={20} /> },
+    { id: "issues", label: t("navIssues", lang), icon: <AlertCircle size={20} /> },
+    { id: "guide", label: t("navGuide", lang), icon: <BookOpen size={20} /> },
+    ...(role === "admin" ? [{ id: "admin", label: t("navAdmin", lang), icon: <Shield size={20} /> }] : [])
+  ];
+
   return (
-    <div 
-      className="min-h-screen bg-[var(--bg)] text-[var(--text)] transition-colors duration-300 flex flex-col"
-      style={{ fontFamily: lang === 'ko' ? '"Pretendard", sans-serif' : undefined }}
-    >
+    <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] transition-colors duration-300 flex flex-col" style={{ fontFamily: lang === 'ko' ? '"Pretendard", sans-serif' : undefined }}>
       <ThemeTokens />
 
-      {/* 頂部導覽列 Header */}
       <header className="h-16 border-b border-[var(--border)] bg-[var(--panel)]/80 backdrop-blur-md sticky top-0 z-50 flex items-center justify-between px-4 md:px-6 shrink-0 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-black bg-gradient-to-br from-[var(--accent)] to-[var(--accent2)] shadow-lg shadow-[var(--accent)]/20">
-            <Server size={18} />
-          </div>
-          <h1 className="text-xl font-black tracking-tighter uppercase italic drop-shadow-sm">
-            Migrate<span className="text-[var(--accent)]">Pro</span>
-          </h1>
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-black bg-gradient-to-br from-[var(--accent)] to-[var(--accent2)] shadow-lg shadow-[var(--accent)]/20"><Server size={18} /></div>
+          <h1 className="text-xl font-black tracking-tighter uppercase italic">Migrate<span className="text-[var(--accent)]">Pro</span></h1>
         </div>
-
-        <div className="flex items-center gap-2 md:gap-4">
-          <button onClick={toggleFs} className="p-2 hover:bg-white/10 rounded-xl transition-colors" title="Full Screen">
-            {isFs ? <Minimize size={18} /> : <Expand size={18} />}
-          </button>
-          
-          <button 
-            onClick={() => {
-              if (lang === "zh") setLang("en");
-              else if (lang === "en") setLang("ko");
-              else setLang("zh");
-            }} 
-            className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--panel2)] border border-[var(--border)] hover:bg-white/10 transition-colors shadow-sm"
-            title="Switch Language"
-          >
-            <Globe size={14} className="text-[var(--accent)]" />
-            <span className="text-xs font-bold w-9 text-center text-[var(--text)]">
-              {t("langToggle", lang)}
-            </span>
-          </button>
-
-          <select 
-            value={themeStyle} 
-            onChange={(e) => setThemeStyle(e.target.value as ThemeStyle)} 
-            className="bg-[var(--panel2)] border border-[var(--border)] rounded-lg text-xs font-bold px-3 py-1.5 outline-none hidden md:block text-[var(--text)] shadow-sm focus:border-[var(--accent)] transition-colors"
-          >
-            <option value="neon">Neon (霓虹)</option>
-            <option value="horizon">Horizon (地平線)</option>
-            <option value="nebula">Nebula (星雲)</option>
-            <option value="matrix">Matrix (駭客)</option>
-          </select>
-          
-          <button onClick={toggleTheme} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-lg" title="Dark/Light Mode">
-            {theme === "dark" ? "🌙" : "☀️"}
-          </button>
-          
-          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--panel2)] shadow-inner">
-            <User size={16} className="text-[var(--muted)]" />
-            <span className="text-sm font-black">{userName || "-"}</span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-[var(--border)] bg-[var(--panel)] text-[var(--muted)] uppercase tracking-wider">
-              {role}
-            </span>
-            <button onClick={logout} className="ml-1 p-1.5 rounded-lg hover:bg-red-500/10 hover:text-red-500 transition-colors text-[var(--muted)]" title="Logout">
-              <LogOut size={16} />
-            </button>
+        <div className="flex items-center gap-3">
+          <button onClick={toggleFs} className="p-2 hover:bg-white/10 rounded-xl transition-colors">{isFs ? <Minimize size={18} /> : <Expand size={18} />}</button>
+          <button onClick={() => setLang(lang === 'zh' ? 'en' : lang === 'en' ? 'ko' : 'zh')} className="text-[10px] font-black px-2 py-1 rounded-lg bg-[var(--panel2)] border border-[var(--border)] uppercase hover:bg-white/5">{lang}</button>
+          <button onClick={toggleTheme} className="p-2 hover:bg-white/10 rounded-xl transition-colors">{theme === "dark" ? "🌙" : "☀️"}</button>
+          <div className="hidden md:flex items-center gap-3 px-4 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--panel2)] shadow-inner">
+            <span className="text-sm font-black tracking-wide">{userName}</span>
+            <span className="text-[9px] font-black bg-black/10 px-1.5 py-0.5 rounded border border-[var(--border)] uppercase">{role}</span>
+            <button onClick={logout} className="ml-1 p-1 rounded-lg hover:bg-red-500/10 text-red-500 transition-colors"><LogOut size={16} /></button>
           </div>
-          
-          <button onClick={logout} className="md:hidden p-2 hover:bg-white/10 rounded-xl text-[var(--muted)] hover:text-red-500 transition-colors" title="Logout">
-            <LogOut size={18} />
-          </button>
+          <button onClick={logout} className="md:hidden p-2 hover:bg-white/10 rounded-xl text-red-500 transition-colors"><LogOut size={18} /></button>
         </div>
       </header>
 
-      {/* 主體佈局 Layout */}
       <div className="flex flex-1 min-h-0">
-        
-        {/* 左側導覽選單 Sidebar */}
         <nav className={`border-r border-[var(--border)] h-[calc(100vh-64px)] sticky top-16 p-4 bg-[var(--panel)] hidden lg:block transition-all duration-300 ${ui.sideCollapsed ? "w-20" : "w-64"} shrink-0`}>
-          <div className="flex justify-end mb-4">
-            <button onClick={() => setUi({ sideCollapsed: !ui.sideCollapsed })} className="p-2 rounded-xl border border-transparent hover:border-[var(--border)] hover:bg-[var(--panel2)] transition-colors text-[var(--muted)] hover:text-[var(--text)]">
-              {ui.sideCollapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
-            </button>
-          </div>
-          <div className="space-y-2">
+           <div className="flex justify-end mb-4"><button onClick={() => setUi({ sideCollapsed: !ui.sideCollapsed })} className="p-2 rounded-xl text-[var(--muted)] hover:text-[var(--text)] transition-colors">{ui.sideCollapsed ? <ChevronsRight size={18}/> : <ChevronsLeft size={18}/>}</button></div>
+           <div className="space-y-1.5">
             {navItems.map((item) => (
-              <button 
-                key={item.id} 
-                onClick={() => setPage(item.id)} 
-                className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-200 ${page === item.id ? "bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/30 shadow-[0_0_15px_rgba(34,211,238,0.1)] font-black" : "text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/5 font-bold"}`} 
-                title={item.label}
-              >
-                {item.icon}
-                {!ui.sideCollapsed && item.label}
+              <button key={item.id} onClick={() => setPage(item.id as PageKey)} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-200 ${page === item.id ? "bg-[var(--accent)] text-black shadow-[0_5px_15px_rgba(34,211,238,0.3)] font-black scale-[1.02]" : "text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/5 font-bold"}`}>
+                {item.icon} {!ui.sideCollapsed && <span className="truncate">{item.label}</span>}
               </button>
             ))}
           </div>
         </nav>
         
-        {/* 內容主視圖 Main Content */}
-        <main className="flex-1 min-w-0 overflow-y-auto scroll-smooth">
+        <main className="flex-1 min-w-0 overflow-y-auto bg-[var(--bg)]">
           <AnimatePresence mode="wait">
-            <motion.div 
-              key={page} 
-              initial={{ opacity: 0, y: 10 }} 
-              animate={{ opacity: 1, y: 0 }} 
-              exit={{ opacity: 0, y: -10 }} 
-              transition={{ duration: 0.25, ease: "easeOut" }} 
-              className="min-h-full"
-            >
+            <motion.div key={page} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="min-h-full">
               {page === "dashboard" && <Dashboard />}
               {page === "devices" && <DevicesPage />}
               {page === "before" && <RackPlanner mode="before" />}
@@ -3768,32 +2782,19 @@ export default function App() {
         </main>
       </div>
 
-      {/* 手機版底部導覽 Bottom Nav */}
       <div className="lg:hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-[var(--panel)]/95 backdrop-blur-xl border border-[var(--border)] rounded-full px-2 py-2 flex gap-1 shadow-[0_10px_40px_rgba(0,0,0,0.5)] z-50 overflow-x-auto max-w-[95vw] scrollbar-hide">
         {navItems.map((item) => (
-          <button 
-            key={item.id} 
-            onClick={() => setPage(item.id)} 
-            className={`p-3.5 rounded-full transition-all shrink-0 ${page === item.id ? "text-black bg-[var(--accent)] shadow-[0_0_15px_rgba(34,211,238,0.5)] scale-110" : "text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/10"}`} 
-            title={item.label}
-          >
+          <button key={item.id} onClick={() => setPage(item.id as PageKey)} className={`p-3.5 rounded-full transition-all shrink-0 ${page === item.id ? "text-black bg-[var(--accent)] shadow-[0_0_15px_rgba(34,211,238,0.5)] scale-110" : "text-[var(--muted)] hover:bg-white/10"}`}>
             {item.icon}
           </button>
         ))}
       </div>
-      
-      {/* 全域懸浮：設備詳細 Modal */}
-      {selectedDeviceId && (
-        <DeviceDetailModal 
-          id={selectedDeviceId} 
-          mode={page === "after" ? "after" : "before"} 
-          onClose={() => setSelectedDeviceId(null)} 
-        />
-      )}
+
+      {selectedDeviceId && <DeviceDetailModal id={selectedDeviceId} mode={page === "after" ? "after" : "before"} onClose={() => setSelectedDeviceId(null)} />}
     </div>
   );
 }
 
 // ==========================================
-// --- Part 5 結束 (完全重構完畢！) ---
+// --- Part 5 結束 (重構拼圖完成！) ---
 // ==========================================

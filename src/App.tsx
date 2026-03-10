@@ -489,7 +489,11 @@ const DEFAULT_UI: UiState = { sideCollapsed: false, unplacedCollapsedBefore: fal
 function loadAccounts(): Account[] {
   const stored = readJson<Account[]>(LS.accounts, []);
   const valid = Array.isArray(stored) ? stored : [];
-  if (valid.length === 0) { writeJson(LS.accounts, DEFAULT_ACCOUNTS); return DEFAULT_ACCOUNTS; }
+  if (valid.length === 0) { 
+    const defaultAcc = [{ username: "admin", password: "migration123", role: "admin" as Role }];
+    writeJson(LS.accounts, defaultAcc); 
+    return defaultAcc; 
+  }
   const hasAdmin = valid.some((a) => a.username === "admin");
   const patched = hasAdmin ? valid : [{ username: "admin", password: "migration123", role: "admin" as Role }, ...valid];
   const fixedAdmin = patched.map((a) => a.username === "admin" ? { ...a, role: "admin" as Role } : a);
